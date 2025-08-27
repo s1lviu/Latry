@@ -663,6 +663,17 @@ void AudioEngine::onAudioInputReadyRead()
         samplesRead = resampledData.size();
     }
 
+    // Apply user-configurable microphone gain (-20dB to +20dB)
+    // Create a modifiable copy for gain application if using resampled data
+    std::vector<float> gainProcessedData;
+    if (m_micGainLinear != 1.0f) {
+        gainProcessedData.resize(samplesRead);
+        for (int i = 0; i < samplesRead; ++i) {
+            gainProcessedData[i] = sampleData[i] * m_micGainLinear;
+        }
+        sampleData = gainProcessedData.data();
+    }
+
     // Apply SVXLink-style audio limiting for FM transmission (-6dBFS)
     m_audioLimiter.processAudio(const_cast<float*>(sampleData), samplesRead);
 
@@ -1003,4 +1014,19 @@ void AudioEngine::AudioLimiter::processAudio(float* samples, int count) {
         // Apply gain reduction to input sample
         samples[i] = outputGain_ * samples[i] * gainReduction;
     }
+}
+
+void AudioEngine::setMicGainDb(double gainDb)
+{
+    // Clamp gain to -20dB to +20dB range for safety
+    gainDb = qBound(-20.0, gainDb, 20.0);
+    
+    if (qAbs(m_micGainDb - gainDb) < 0.1) return; // Avoid unnecessary updates
+    
+    m_micGainDb = gainDb;
+    
+    // Convert dB to linear gain factor: gain_linear = 10^(dB/20)
+    m_micGainLinear = static_cast<float>(std::pow(10.0, gainDb / 20.0));
+    
+    qDebug() << "AudioEngine: Android microphone gain updated to" << gainDb << "dB (linear:" << m_micGainLinear << ")";
 }
