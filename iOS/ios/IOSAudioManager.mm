@@ -73,13 +73,17 @@ void handleIOSAudioInterruption(int type);
 }
 
 - (void)configureVoIPAudioSession {
+    // Default to mixing mode for cooperative behavior when not transmitting
+    [self configureMixingAudioSession];
+}
+
+- (void)configureDuckingAudioSession {
     NSError *error = nil;
     
-    // Step 1: Set preferences BEFORE activating session (Apple recommendation)
-    NSLog(@"IOSAudioManager: Setting VoIP preferences before activation");
+    // Step 1: Set preferences BEFORE configuring session (Apple recommendation)
+    NSLog(@"IOSAudioManager: Setting VoIP preferences for ducking mode");
     
     // Set preferred sample rate - try common VoIP rates in order of preference
-    // Apple docs: "Different hardware may have different capabilities"
     double preferredRates[] = {16000.0, 24000.0, 48000.0}; // VoIP optimal rates
     for (int i = 0; i < 3; i++) {
         [self.audioSession setPreferredSampleRate:preferredRates[i] error:&error];
@@ -95,23 +99,61 @@ void handleIOSAudioInterruption(int type);
         NSLog(@"IOSAudioManager: Failed to set preferred buffer duration: %@", error.localizedDescription);
     }
     
-    // Using software gain boost in AudioEngine for consistent volume levels
-    NSLog(@"IOSAudioManager: Using software gain boost for iOS transmission volume");
-    
-    // Step 2: Configure audio session for VoIP (before activation)
+    // SECURITY: Configure audio session to DUCK other apps during PTT
+    // This prevents other audio from mixing into microphone input
     [self.audioSession setCategory:AVAudioSessionCategoryPlayAndRecord
                               mode:AVAudioSessionModeVoiceChat
                            options:AVAudioSessionCategoryOptionAllowBluetooth |
                                    AVAudioSessionCategoryOptionDefaultToSpeaker |
-                                   AVAudioSessionCategoryOptionAllowBluetoothA2DP
+                                   AVAudioSessionCategoryOptionAllowBluetoothA2DP |
+                                   AVAudioSessionCategoryOptionDuckOthers  // Duck, don't mix
                              error:&error];
     
     if (error) {
-        NSLog(@"IOSAudioManager: Failed to set audio session category: %@", error.localizedDescription);
+        NSLog(@"IOSAudioManager: Failed to set ducking audio session: %@", error.localizedDescription);
         return;
     }
     
-    NSLog(@"IOSAudioManager: VoIP audio session configured successfully");
+    NSLog(@"IOSAudioManager: Ducking audio session configured for secure PTT");
+}
+
+- (void)configureMixingAudioSession {
+    NSError *error = nil;
+    
+    // Step 1: Set preferences BEFORE configuring session (Apple recommendation)
+    NSLog(@"IOSAudioManager: Setting VoIP preferences for mixing mode");
+    
+    // Set preferred sample rate - try common VoIP rates in order of preference
+    double preferredRates[] = {16000.0, 24000.0, 48000.0}; // VoIP optimal rates
+    for (int i = 0; i < 3; i++) {
+        [self.audioSession setPreferredSampleRate:preferredRates[i] error:&error];
+        if (!error) {
+            NSLog(@"IOSAudioManager: Preferred sample rate set to %.0fHz", preferredRates[i]);
+            break;
+        }
+    }
+    
+    // Set preferred buffer duration for low latency VoIP
+    [self.audioSession setPreferredIOBufferDuration:0.02 error:&error];
+    if (error) {
+        NSLog(@"IOSAudioManager: Failed to set preferred buffer duration: %@", error.localizedDescription);
+    }
+    
+    // COOPERATIVE: Configure audio session to MIX with other apps during RX/idle
+    [self.audioSession setCategory:AVAudioSessionCategoryPlayAndRecord
+                              mode:AVAudioSessionModeVoiceChat
+                           options:AVAudioSessionCategoryOptionAllowBluetooth |
+                                   AVAudioSessionCategoryOptionDefaultToSpeaker |
+                                   AVAudioSessionCategoryOptionAllowBluetoothA2DP |
+                                   AVAudioSessionCategoryOptionMixWithOthers  // Allow mixing when idle
+                             error:&error];
+    
+    if (error) {
+        NSLog(@"IOSAudioManager: Failed to set mixing audio session: %@", error.localizedDescription);
+        return;
+    }
+    
+    NSLog(@"IOSAudioManager: Mixing audio session configured for cooperative behavior");
 }
 
 - (void)activateAudioSession {
@@ -269,6 +311,25 @@ void handleIOSAudioInterruption(int type);
     return self.screenWakeLockActive;
 }
 
+#pragma mark - Audio Security Validation
+
+- (BOOL)isAudioSessionSecure {
+    // Check if audio session is configured to prevent mixing (secure for PTT)
+    AVAudioSessionCategoryOptions currentOptions = self.audioSession.categoryOptions;
+    BOOL hasMixWithOthers = (currentOptions & AVAudioSessionCategoryOptionMixWithOthers) != 0;
+    BOOL hasDuckOthers = (currentOptions & AVAudioSessionCategoryOptionDuckOthers) != 0;
+    
+    // Secure mode: should have ducking enabled and mixing disabled
+    BOOL isSecure = hasDuckOthers && !hasMixWithOthers;
+    
+    NSLog(@"IOSAudioManager: Audio session security check - DuckOthers: %@, MixWithOthers: %@, Secure: %@", 
+          hasDuckOthers ? @"YES" : @"NO", 
+          hasMixWithOthers ? @"YES" : @"NO", 
+          isSecure ? @"YES" : @"NO");
+    
+    return isSecure;
+}
+
 @end
 
 #pragma mark - C Interface for Qt Integration
@@ -321,4 +382,16 @@ void ios_releaseScreenWakeLock(void) {
 
 int ios_isScreenWakeLockActive(void) {
     return [[IOSAudioManager sharedInstance] isScreenWakeLockActive] ? 1 : 0;
+}
+
+void ios_configureDuckingAudioSession(void) {
+    [[IOSAudioManager sharedInstance] configureDuckingAudioSession];
+}
+
+void ios_configureMixingAudioSession(void) {
+    [[IOSAudioManager sharedInstance] configureMixingAudioSession];
+}
+
+int ios_isAudioSessionSecure(void) {
+    return [[IOSAudioManager sharedInstance] isAudioSessionSecure] ? 1 : 0;
 }

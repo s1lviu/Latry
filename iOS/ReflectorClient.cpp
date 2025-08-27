@@ -251,6 +251,10 @@ void ReflectorClient::initializeAudioEngine()
     m_audioEngine = new AudioEngine();
     m_audioEngine->moveToThread(m_audioThread);
     
+    // Initialize AudioEngine with current mic gain setting
+    QMetaObject::invokeMethod(m_audioEngine, "setMicGainDb", Qt::QueuedConnection, 
+                              Q_ARG(double, m_micGainDb));
+    
     // Connect signals from AudioEngine to ReflectorClient
     connect(m_audioEngine, &AudioEngine::audioReadyChanged, this, [this](bool ready) {
         m_audioReady = ready;
@@ -350,6 +354,24 @@ void ReflectorClient::sendHeartbeat()
 QString ReflectorClient::connectionStatus() const { return m_connectionStatus; }
 bool ReflectorClient::pttActive() const { return m_pttActive; }
 QString ReflectorClient::currentTalker() const { return m_currentTalker; }
+
+void ReflectorClient::setMicGainDb(double gainDb) {
+    // Clamp gain to -20dB to +20dB range for safety
+    gainDb = qBound(-20.0, gainDb, 20.0);
+    
+    if (qAbs(m_micGainDb - gainDb) < 0.1) return; // Avoid unnecessary updates
+    
+    m_micGainDb = gainDb;
+    emit micGainDbChanged();
+    
+    // Notify AudioEngine about the gain change if connected
+    if (m_audioEngine) {
+        QMetaObject::invokeMethod(m_audioEngine, "setMicGainDb", Qt::QueuedConnection, 
+                                  Q_ARG(double, gainDb));
+    }
+    
+    qDebug() << "Microphone gain set to:" << gainDb << "dB";
+}
 void ReflectorClient::connectToServer(const QString &host, int port, const QString &authKey, const QString &callsign, quint32 talkgroup) {
     if (m_state != Disconnected) return;
     
@@ -493,6 +515,11 @@ void ReflectorClient::startTransmission() {
 
 #if defined(Q_OS_IOS)
     // iOS microphone permission is handled by the system via Info.plist
+    // SECURITY: Configure audio session to DUCK other apps before PTT
+    // This prevents other audio from mixing into microphone input
+    ios_configureDuckingAudioSession();
+    qDebug() << "iOS: Audio session configured for secure PTT (ducking mode)";
+    
     // Request audio focus equivalent to Android audio focus
     IOSVoIPHandler::instance()->requestAudioFocus();
     qDebug() << "iOS audio focus requested for PTT";
@@ -518,7 +545,7 @@ void ReflectorClient::startTransmission() {
     
     // Start recording through AudioEngine
     QMetaObject::invokeMethod(m_audioEngine, "startRecording", Qt::QueuedConnection);
-    qInfo() << "PTT Pressed: Recording started.";
+    qInfo() << "PTT Pressed: Recording started (secure mode - other apps ducked).";
 }
 void ReflectorClient::pttReleased() {
     if (!m_pttActive) return;
@@ -555,6 +582,13 @@ void ReflectorClient::pttReleased() {
     if (m_audioEngine) {
         QMetaObject::invokeMethod(m_audioEngine, "stopRecording", Qt::QueuedConnection);
     }
+    
+#if defined(Q_OS_IOS)
+    // RESTORE: Configure audio session to MIX with other apps after PTT
+    // This allows cooperative behavior with music, podcasts, etc.
+    ios_configureMixingAudioSession();
+    qDebug() << "iOS: Audio session restored to cooperative mixing mode after PTT";
+#endif
     
     // Inform the server that we are done transmitting so talker state can be
     // updated immediately instead of waiting for a timeout.

@@ -44,6 +44,11 @@ void ios_acquireScreenWakeLock(void);
 void ios_releaseScreenWakeLock(void);
 int ios_isScreenWakeLockActive(void);
 
+// Audio session cooperation and security functions
+void ios_configureDuckingAudioSession(void);
+void ios_configureMixingAudioSession(void);
+int ios_isAudioSessionSecure(void);
+
 #ifdef __cplusplus
 }
 #endif
@@ -65,6 +70,11 @@ int ios_isScreenWakeLockActive(void);
 - (void)acquireScreenWakeLock;
 - (void)releaseScreenWakeLock;
 - (BOOL)isScreenWakeLockActive;
+
+// Audio session cooperation and security methods
+- (void)configureDuckingAudioSession;
+- (void)configureMixingAudioSession;
+- (BOOL)isAudioSessionSecure;
 
 @property (nonatomic, assign) UIBackgroundTaskIdentifier backgroundTask;
 @property (nonatomic, strong) AVAudioSession *audioSession;
