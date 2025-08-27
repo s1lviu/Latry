@@ -65,6 +65,7 @@ public slots:
     void onActivityPaused();
     void onActivityResumed();
     void allSamplesFlushed();
+    void setMicGainDb(double gainDb);
 
 signals:
     void audioReadyChanged(bool ready);
@@ -113,6 +114,10 @@ private:
     bool m_audioFocusLost = false;
     bool m_audioFocusPaused = false;
     QDateTime m_lastAudioWrite;
+    
+    // Microphone gain control (-20dB to +20dB)
+    double m_micGainDb = 0.0;
+    float m_micGainLinear = 1.0f;
     
     // Pre-allocated buffers for performance optimization
     std::vector<float> m_reusableFloatBuffer;

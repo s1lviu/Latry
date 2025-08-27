@@ -75,10 +75,12 @@ public class LatryActivity extends QtActivity {
                 .build();
         // Create AudioFocusRequest for Android 8.0+ (API level 26+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            // SECURE PTT MODE: Use EXCLUSIVE focus to prevent other audio mixing during transmission
             audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
                     .setAudioAttributes(audioAttributes)
                     .setAcceptsDelayedFocusGain(false)
-                    // (willPauseWhenDucked not relevant for voice)
+                    // Ensure exclusive audio access during PTT for radio security
+                    .setWillPauseWhenDucked(false)  // We want exclusive, not ducking during PTT
                     .setOnAudioFocusChangeListener(focusChangeListener)
                     .build();
         }
@@ -104,10 +106,15 @@ public class LatryActivity extends QtActivity {
     }
 
     public static void requestAudioFocus() {
+        requestSecureAudioFocus(); // Default to secure mode
+    }
+    
+    // SECURE MODE: Exclusive audio focus for PTT transmission (prevents other audio mixing)
+    public static void requestSecureAudioFocus() {
         if (audioManager != null && !audioFocusRequested) {
             int result;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                // Use modern AudioFocusRequest for Android 8.0+
+                // Use EXCLUSIVE focus to prevent other apps' audio from mixing during PTT
                 result = audioManager.requestAudioFocus(audioFocusRequest);
             } else {
                 // Fallback for older Android versions (API 21-25)
@@ -116,11 +123,42 @@ public class LatryActivity extends QtActivity {
                         AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE);
             }
             audioFocusRequested = (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
-            Log.d(TAG, "Audio focus request result: " + result);
+            Log.d(TAG, "Secure audio focus request result: " + result + " (EXCLUSIVE mode for PTT)");
         }
         // acquire only when we really own focus
         if (audioFocusRequested && wakeLock != null && !wakeLock.isHeld()) {
             wakeLock.acquire();    // add a timeout if you like
+        }
+        if (audioFocusRequested && wifiLock != null && !wifiLock.isHeld()) {
+            wifiLock.acquire();
+        }
+    }
+    
+    // COOPERATIVE MODE: Shared audio focus for RX/idle (allows other apps to play with ducking)
+    public static void requestCooperativeAudioFocus() {
+        if (audioManager != null && !audioFocusRequested) {
+            int result;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                // Use GAIN focus that allows ducking for cooperative behavior during RX
+                AudioFocusRequest cooperativeRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                        .setAudioAttributes(audioAttributes)
+                        .setAcceptsDelayedFocusGain(true)  // Allow delayed focus for cooperation
+                        .setWillPauseWhenDucked(false)     // We can handle ducking
+                        .setOnAudioFocusChangeListener(focusChangeListener)
+                        .build();
+                result = audioManager.requestAudioFocus(cooperativeRequest);
+            } else {
+                // Fallback: Use GAIN instead of EXCLUSIVE for cooperative behavior
+                result = audioManager.requestAudioFocus(focusChangeListener,
+                        AudioManager.STREAM_VOICE_CALL,
+                        AudioManager.AUDIOFOCUS_GAIN);
+            }
+            audioFocusRequested = (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
+            Log.d(TAG, "Cooperative audio focus request result: " + result + " (SHARED mode for RX)");
+        }
+        // For cooperative mode, we still acquire locks but allow audio sharing
+        if (audioFocusRequested && wakeLock != null && !wakeLock.isHeld()) {
+            wakeLock.acquire();
         }
         if (audioFocusRequested && wifiLock != null && !wifiLock.isHeld()) {
             wifiLock.acquire();
