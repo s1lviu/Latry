@@ -771,6 +771,16 @@ void AudioEngine::onAudioInputReadyRead()
         return;
     }
     
+#if defined(Q_OS_IOS)
+    // SECURITY CHECK: Verify audio session is in secure mode during PTT
+    // This prevents other apps' audio from being transmitted over the radio network
+    if (!ios_isAudioSessionSecure()) {
+        qWarning() << "AudioEngine: SECURITY WARNING - Audio session not in secure mode during PTT, dropping audio data";
+        qWarning() << "AudioEngine: This prevents other apps' audio from being transmitted over radio";
+        return;
+    }
+#endif
+    
     QByteArray pcmData = m_audioInputDevice->readAll();
     if (pcmData.isEmpty()) {
         qDebug() << "AudioEngine::onAudioInputReadyRead - No data available";
@@ -820,9 +830,11 @@ void AudioEngine::onAudioInputReadyRead()
         
 #if defined(Q_OS_IOS)
         // iOS-specific input gain boost to compensate for low microphone levels
-        // Apply aggressive gain to match Android -6dB levels (iOS typically -30dB without boost)
-        // Target: 24dB boost (16x amplification) to go from -30dB to -6dB
-        const float iosInputGain = 16.0f;
+        // Apply base gain (24dB/16x) plus user-configurable mic gain
+        // Base: 24dB boost (16x amplification) to go from -30dB to -6dB
+        // User: Additional -20dB to +20dB adjustment
+        const float iosBaseGain = 16.0f;
+        const float totalGain = iosBaseGain * m_micGainLinear;
         
         // Debug: Log input levels periodically for Int16 format
         static int debugCounterInt16 = 0;
@@ -831,15 +843,15 @@ void AudioEngine::onAudioInputReadyRead()
             for (int i = 0; i < monoSamples; ++i) {
                 maxLevel = std::max(maxLevel, std::abs(m_reusableFloatBuffer[i]));
             }
-            qDebug() << "iOS Int16 input level before gain:" << maxLevel << "after gain:" << (maxLevel * iosInputGain);
-            qDebug() << "iOS Int16 gain applied: 16x (" << (20 * log10(iosInputGain)) << "dB)";
+            qDebug() << "iOS Int16 input level before gain:" << maxLevel << "after gain:" << (maxLevel * totalGain);
+            qDebug() << "iOS Int16 total gain applied:" << totalGain << "x (Base: 24dB + Mic:" << m_micGainDb << "dB)";
             if (maxLevel < 0.001f) {
                 qWarning() << "iOS WARNING: Input level extremely low!" << maxLevel << "- Check microphone permissions";
             }
         }
         
         for (int i = 0; i < monoSamples; ++i) {
-            float sample = m_reusableFloatBuffer[i] * iosInputGain;
+            float sample = m_reusableFloatBuffer[i] * totalGain;
             // Professional soft limiting for high-gain scenarios
             // Use tanh() for smooth saturation instead of hard clipping
             if (std::abs(sample) > 0.9f) {
@@ -881,9 +893,11 @@ void AudioEngine::onAudioInputReadyRead()
         
 #if defined(Q_OS_IOS)
         // iOS-specific input gain boost to compensate for low microphone levels
-        // Apply aggressive gain to match Android -6dB levels (iOS typically -30dB without boost)
-        // Target: 24dB boost (16x amplification) to go from -30dB to -6dB
-        const float iosInputGain = 16.0f;
+        // Apply base gain (24dB/16x) plus user-configurable mic gain
+        // Base: 24dB boost (16x amplification) to go from -30dB to -6dB
+        // User: Additional -20dB to +20dB adjustment
+        const float iosBaseGain = 16.0f;
+        const float totalGain = iosBaseGain * m_micGainLinear;
         
         // Debug: Log input levels periodically for Float format
         static int debugCounterFloat = 0;
@@ -892,15 +906,15 @@ void AudioEngine::onAudioInputReadyRead()
             for (int i = 0; i < monoSamples; ++i) {
                 maxLevel = std::max(maxLevel, std::abs(m_reusableFloatBuffer[i]));
             }
-            qDebug() << "iOS Float input level before gain:" << maxLevel << "after gain:" << (maxLevel * iosInputGain);
-            qDebug() << "iOS Float gain applied: 16x (" << (20 * log10(iosInputGain)) << "dB)";
+            qDebug() << "iOS Float input level before gain:" << maxLevel << "after gain:" << (maxLevel * totalGain);
+            qDebug() << "iOS Float total gain applied:" << totalGain << "x (Base: 24dB + Mic:" << m_micGainDb << "dB)";
             if (maxLevel < 0.001f) {
                 qWarning() << "iOS WARNING: Input level extremely low!" << maxLevel << "- Check microphone permissions";
             }
         }
         
         for (int i = 0; i < monoSamples; ++i) {
-            float sample = m_reusableFloatBuffer[i] * iosInputGain;
+            float sample = m_reusableFloatBuffer[i] * totalGain;
             // Professional soft limiting for high-gain scenarios
             // Use tanh() for smooth saturation instead of hard clipping
             if (std::abs(sample) > 0.9f) {
@@ -1320,4 +1334,19 @@ void AudioEngine::AudioLimiter::processAudio(float* samples, int count) {
         // Apply gain reduction to input sample
         samples[i] = outputGain_ * samples[i] * gainReduction;
     }
+}
+
+void AudioEngine::setMicGainDb(double gainDb)
+{
+    // Clamp gain to -20dB to +20dB range for safety
+    gainDb = qBound(-20.0, gainDb, 20.0);
+    
+    if (qAbs(m_micGainDb - gainDb) < 0.1) return; // Avoid unnecessary updates
+    
+    m_micGainDb = gainDb;
+    
+    // Convert dB to linear gain factor: gain_linear = 10^(dB/20)
+    m_micGainLinear = static_cast<float>(std::pow(10.0, gainDb / 20.0));
+    
+    qDebug() << "AudioEngine: Microphone gain updated to" << gainDb << "dB (linear:" << m_micGainLinear << ")";
 }

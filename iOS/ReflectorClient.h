@@ -49,6 +49,7 @@ class ReflectorClient : public QObject
     Q_PROPERTY(bool isDisconnected READ isDisconnected NOTIFY connectionStatusChanged)
     Q_PROPERTY(bool audioReady READ audioReady NOTIFY audioReadyChanged)
     Q_PROPERTY(bool isReceivingAudio READ isReceivingAudio NOTIFY isReceivingAudioChanged)
+    Q_PROPERTY(double micGainDb READ micGainDb WRITE setMicGainDb NOTIFY micGainDbChanged)
 
 public:
     static ReflectorClient* instance();
@@ -62,6 +63,8 @@ public:
     bool isDisconnected() const { return m_state == Disconnected; }
     bool audioReady() const { return m_audioReady; }
     bool isReceivingAudio() const { return m_isReceivingAudio; }
+    double micGainDb() const { return m_micGainDb; }
+    void setMicGainDb(double gainDb);
 
     Q_INVOKABLE void connectToServer(const QString &host, int port, const QString &authKey, const QString &callsign, quint32 talkgroup);
     Q_INVOKABLE void disconnectFromServer();
@@ -95,6 +98,7 @@ signals:
     void txTimeStringChanged();
     void audioReadyChanged();
     void isReceivingAudioChanged();
+    void micGainDbChanged();
     
     // New protocol signals
     void connectedNodesChanged(const QStringList &nodes);
@@ -174,6 +178,7 @@ private:
     QString m_connectionStatus = "Disconnected";
     bool m_pttActive = false;
     bool m_audioReady = false;
+    double m_micGainDb = 0.0; // Default 0dB gain (no change)
 
     QTcpSocket* m_tcpSocket = nullptr;
     QUdpSocket* m_udpSocket = nullptr;

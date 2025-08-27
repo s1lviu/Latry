@@ -89,7 +89,7 @@ jobs:
         sed -i "s/android:versionName=\"[^\"]*\"/android:versionName=\"${SHORT_SHA}\"/" android/android/AndroidManifest.xml
         
         # Update ReflectorClient.cpp
-        sed -i "s/\"swVer\": \"latry-yo6say-[^\"]*\"/\"swVer\": \"latry-yo6say-${SHORT_SHA}\"/" android/ReflectorClient.cpp
+        sed -i "s/nodeInfoJson\\[\\\"swVer\\\"\\] = \\\"latry-yo6say-[^\\\"]*\\\"/nodeInfoJson[\\\"swVer\\\"] = \\\"latry-yo6say-${SHORT_SHA}\\\"/" android/ReflectorClient.cpp
         
         # Update Main.qml
         sed -i "s/text: 'v[^']*'/text: 'v${SHORT_SHA}'/" android/Main.qml

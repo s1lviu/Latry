@@ -318,6 +318,111 @@ Item {
                     }
                 }
                 
+                // Microphone Gain Control
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 6
+                    Layout.bottomMargin: 3
+                    
+                    RowLayout {
+                        Layout.fillWidth: true
+                        
+                        Label {
+                            text: "Mic Gain:"
+                            color: isDarkMode ? "#FFFFFF" : "#000000"
+                            font.pixelSize: Qt.platform.os === "ios" ? 16 : 14
+                        }
+                        
+                        Item { Layout.fillWidth: true } // Spacer
+                        
+                        Label {
+                            text: ReflectorClient.micGainDb.toFixed(1) + " dB"
+                            color: isDarkMode ? "#8E8E93" : "#666666"
+                            font.pixelSize: Qt.platform.os === "ios" ? 14 : 12
+                            font.family: Qt.platform.os === "ios" ? "SF Pro Text" : "monospace"
+                        }
+                    }
+                    
+                    Slider {
+                        id: micGainSlider
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Qt.platform.os === "ios" ? 30 : implicitHeight
+                        from: -20.0
+                        to: 20.0
+                        stepSize: 0.5
+                        value: ReflectorClient.micGainDb
+                        
+                        onValueChanged: {
+                            if (Math.abs(value - ReflectorClient.micGainDb) > 0.1) {
+                                ReflectorClient.micGainDb = value
+                            }
+                        }
+                        
+                        background: Rectangle {
+                            x: micGainSlider.leftPadding
+                            y: micGainSlider.topPadding + micGainSlider.availableHeight / 2 - height / 2
+                            width: micGainSlider.availableWidth
+                            height: Qt.platform.os === "ios" ? 4 : 6
+                            radius: 2
+                            color: isDarkMode ? "#38383A" : "#C6C6C8"
+                            
+                            Rectangle {
+                                width: micGainSlider.visualPosition * parent.width
+                                height: parent.height
+                                color: Qt.platform.os === "ios" ? "#007AFF" : (isDarkMode ? "#4A90E2" : "#0078D4")
+                                radius: 2
+                            }
+                        }
+                        
+                        handle: Rectangle {
+                            x: micGainSlider.leftPadding + micGainSlider.visualPosition * (micGainSlider.availableWidth - width)
+                            y: micGainSlider.topPadding + micGainSlider.availableHeight / 2 - height / 2
+                            width: Qt.platform.os === "ios" ? 28 : 20
+                            height: Qt.platform.os === "ios" ? 28 : 20
+                            radius: Qt.platform.os === "ios" ? 14 : 10
+                            color: Qt.platform.os === "ios" ? "#FFFFFF" : (isDarkMode ? "#FFFFFF" : "#FFFFFF")
+                            border.color: Qt.platform.os === "ios" ? "#C6C6C8" : (isDarkMode ? "#666666" : "#C6C6C8")
+                            border.width: Qt.platform.os === "ios" ? 1 : 1
+                            
+                            // iOS-style shadow
+                            layer.enabled: Qt.platform.os === "ios"
+                            layer.effect: DropShadow {
+                                horizontalOffset: 0
+                                verticalOffset: 1
+                                radius: 3
+                                samples: 7
+                                color: "#40000000"
+                            }
+                        }
+                    }
+                    
+                    RowLayout {
+                        Layout.fillWidth: true
+                        
+                        Label {
+                            text: "-20"
+                            color: isDarkMode ? "#8E8E93" : "#999999"
+                            font.pixelSize: Qt.platform.os === "ios" ? 12 : 10
+                        }
+                        
+                        Item { Layout.fillWidth: true } // Spacer
+                        
+                        Label {
+                            text: "0"
+                            color: isDarkMode ? "#8E8E93" : "#999999"
+                            font.pixelSize: Qt.platform.os === "ios" ? 12 : 10
+                        }
+                        
+                        Item { Layout.fillWidth: true } // Spacer
+                        
+                        Label {
+                            text: "+20"
+                            color: isDarkMode ? "#8E8E93" : "#999999"
+                            font.pixelSize: Qt.platform.os === "ios" ? 12 : 10
+                        }
+                    }
+                }
+                
                 Button {
                     id: connectButton
                     Layout.fillWidth: true
