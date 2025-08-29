@@ -1,0 +1,184 @@
+name: Android Debug Build
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'feature/**'
+      - 'bugfix/**'
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
+    - name: Install Qt ARM64
+      uses: jurplel/install-qt-action@v4
+      with:
+        version: '6.9.1'
+        host: 'linux'
+        target: 'android'
+        arch: 'android_arm64_v8a'
+        modules: 'qtmultimedia'
+        cache: true
+        
+    - name: Install Qt ARMv7
+      uses: jurplel/install-qt-action@v4
+      with:
+        version: '6.9.1'
+        host: 'linux'
+        target: 'android'
+        arch: 'android_armv7'
+        modules: 'qtmultimedia'
+        cache: true
+
+    - name: Install Android NDK
+      run: |
+        sdkmanager "ndk;27.2.12479018"
+        echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> $GITHUB_ENV
+
+    - name: Cache CMake build
+      uses: actions/cache@v4
+      with:
+        path: |
+          android/build
+          ~/.ccache
+        key: ${{ runner.os }}-cmake-${{ hashFiles('**/CMakeLists.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-cmake-
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake ninja-build
+
+    - name: Initialize Opus submodule
+      run: |
+        git submodule update --init --recursive android/3rdparty/opus || echo "Opus submodule not found, will need to be added"
+
+    - name: Update version for debug build
+      if: github.ref_name != 'main'
+      run: |
+        SHORT_SHA="${{ github.sha }}"
+        SHORT_SHA=${SHORT_SHA:0:8}
+        
+        # Update AndroidManifest.xml (ensure proper escaping)
+        sed -i "s/android:versionName=\"[^\"]*\"/android:versionName=\"${SHORT_SHA}\"/" android/android/AndroidManifest.xml
+        
+        # Update ReflectorClient.cpp
+        sed -i "s/\"swVer\": \"latry-yo6say-[^\"]*\"/\"swVer\": \"latry-yo6say-${SHORT_SHA}\"/" android/ReflectorClient.cpp
+        
+        # Update Main.qml
+        sed -i "s/text: 'v[^']*'/text: 'v${SHORT_SHA}'/" android/Main.qml
+        
+        # Verify changes
+        echo "=== AndroidManifest.xml ===" 
+        grep "versionName" android/android/AndroidManifest.xml
+        echo "=== ReflectorClient.cpp ==="
+        grep "swVer" android/ReflectorClient.cpp
+        echo "=== Main.qml ==="
+        grep "text: 'v" android/Main.qml
+
+    - name: Configure CMake for Android
+      working-directory: android
+      run: |
+        # Use primary Qt installation (arm64) for qt-cmake  
+        QT_CMAKE_PATH="$QT_ROOT_DIR/bin/qt-cmake"
+        
+        $QT_CMAKE_PATH -S . -B build \
+          -DQT_ANDROID_ABIS="armeabi-v7a;arm64-v8a" \
+          -DANDROID_SDK_ROOT=$ANDROID_SDK_ROOT \
+          -DANDROID_NDK_ROOT=$ANDROID_NDK_ROOT \
+          -DANDROID_PLATFORM=android-28 \
+          -DCMAKE_BUILD_TYPE=Debug \
+          -G Ninja
+
+    - name: Build Android APK
+      working-directory: android
+      run: |
+        cmake --build build --target apk
+
+    - name: Find and rename APK files
+      id: find_apk
+      run: |
+        APK_PATH=$(find android/build -name "*.apk" -type f | head -1)
+        if [ -z "$APK_PATH" ]; then
+          echo "No APK found!"
+          exit 1
+        fi
+        
+        # Create branch-specific APK name
+        BRANCH_NAME="${{ github.ref_name }}"
+        SAFE_BRANCH_NAME=$(echo "$BRANCH_NAME" | sed 's/[^a-zA-Z0-9._-]/_/g')
+        SHORT_SHA="${{ github.sha }}"
+        SHORT_SHA=${SHORT_SHA:0:8}
+        
+        APK_DIR=$(dirname "$APK_PATH")
+        NEW_APK_NAME="latry-debug-${SAFE_BRANCH_NAME}-${SHORT_SHA}.apk"
+        NEW_APK_PATH="$APK_DIR/$NEW_APK_NAME"
+        
+        mv "$APK_PATH" "$NEW_APK_PATH"
+        
+        echo "apk_path=$NEW_APK_PATH" >> $GITHUB_OUTPUT
+        echo "apk_name=$NEW_APK_NAME" >> $GITHUB_OUTPUT
+
+    - name: Upload APK artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.find_apk.outputs.apk_name }}
+        path: ${{ steps.find_apk.outputs.apk_path }}
+        retention-days: 90
+
+    - name: Create Release for main/develop branches
+      if: github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'develop')
+      uses: softprops/action-gh-release@v2
+      with:
+        files: ${{ steps.find_apk.outputs.apk_path }}
+        tag_name: "debug-${{ github.ref_name }}-${{ github.run_number }}"
+        name: "Debug Build - ${{ github.ref_name }} #${{ github.run_number }}"
+        body: |
+          **Debug Build Information**
+          - Branch: ${{ github.ref_name }}
+          - Commit: ${{ github.sha }}
+          - Build: #${{ github.run_number }}
+          
+          **APK Details**
+          - Multi-ABI: armeabi-v7a, arm64-v8a
+          - Version: ${{ github.sha }}
+          - Signed: Debug keystore
+        draft: false
+        prerelease: true
+        make_latest: false
+
+    - name: Add build info to summary
+      run: |
+        echo "## Android Debug Build Complete ✅" >> $GITHUB_STEP_SUMMARY
+        echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **APK:** ${{ steps.find_apk.outputs.apk_name }}" >> $GITHUB_STEP_SUMMARY
+        if [[ "${{ github.event_name }}" == "push" && ("${{ github.ref_name }}" == "main" || "${{ github.ref_name }}" == "develop") ]]; then
+          echo "- **Release:** Created as prerelease" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- **Download:** Available in Actions artifacts" >> $GITHUB_STEP_SUMMARY
+        fi
