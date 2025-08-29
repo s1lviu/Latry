@@ -101,8 +101,8 @@ jobs:
     - name: Configure CMake for Android
       working-directory: android
       run: |
-        # Use primary Qt installation (arm64) for qt-cmake
-        QT_CMAKE_PATH="$Qt6_DIR/../bin/qt-cmake"
+        # Use primary Qt installation (arm64) for qt-cmake  
+        QT_CMAKE_PATH="$QT_ROOT_DIR/bin/qt-cmake"
         
         $QT_CMAKE_PATH -S . -B build \
           -DQT_ANDROID_ABIS="armeabi-v7a;arm64-v8a" \
