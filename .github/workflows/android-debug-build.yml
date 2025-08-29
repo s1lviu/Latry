@@ -31,13 +31,23 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
 
-    - name: Install Qt
+    - name: Install Qt ARM64
       uses: jurplel/install-qt-action@v4
       with:
         version: '6.9.1'
         host: 'linux'
         target: 'android'
-        arch: 'android_arm64_v8a android_armv7'
+        arch: 'android_arm64_v8a'
+        modules: 'qtmultimedia qtnetwork'
+        cache: true
+        
+    - name: Install Qt ARMv7
+      uses: jurplel/install-qt-action@v4
+      with:
+        version: '6.9.1'
+        host: 'linux'
+        target: 'android'
+        arch: 'android_armv7'
         modules: 'qtmultimedia qtnetwork'
         cache: true
 
