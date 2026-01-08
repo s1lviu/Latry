@@ -70,6 +70,9 @@ Window {
         property string key: ""
         property string talkgroup: ""
         property string appWebsiteUrl: "https://latry.app/#ios"
+        
+        // iOS-specific speaker preference
+        property bool useSpeaker: true  // Default to speaker for better audio volume
     }
 
     // Store stable text values to avoid Android InputConnection issues
@@ -414,6 +417,77 @@ Item {
             Layout.minimumHeight: 10
         }
 
+        // iOS Speaker toggle control
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 50
+            Layout.leftMargin: Qt.platform.os === "ios" ? 16 : 0
+            Layout.rightMargin: Qt.platform.os === "ios" ? 16 : 0
+            visible: Qt.platform.os === "ios" && ReflectorClient.connectionStatus.startsWith("Connected")
+            spacing: 12
+
+            Label {
+                text: qsTr("Use Speaker")
+                font.pixelSize: 16
+                color: isDarkMode ? "#FFFFFF" : "#000000"
+                Layout.fillWidth: true
+            }
+
+            Switch {
+                id: speakerSwitch
+                checked: saved.useSpeaker
+                
+                onToggled: {
+                    saved.useSpeaker = checked
+                    if (Qt.platform.os === "ios") {
+                        IOSVoIPHandler.setAudioOutputToSpeaker(checked)
+                    }
+                }
+                
+                // iOS-style switch appearance
+                background: Rectangle {
+                    implicitWidth: 51
+                    implicitHeight: 31
+                    radius: 15.5
+                    color: speakerSwitch.checked ? "#34C759" : (isDarkMode ? "#39393D" : "#E5E5EA")
+                    border.width: 0
+                }
+                
+                indicator: Rectangle {
+                    implicitWidth: 51
+                    implicitHeight: 31
+                    x: speakerSwitch.leftPadding
+                    y: parent.height / 2 - height / 2
+                    radius: 15.5
+                    color: speakerSwitch.checked ? "#34C759" : (isDarkMode ? "#39393D" : "#E5E5EA")
+                    border.width: 0
+                    
+                    Rectangle {
+                        x: speakerSwitch.checked ? parent.width - width - 2 : 2
+                        y: (parent.height - height) / 2
+                        width: 27
+                        height: 27
+                        radius: 13.5
+                        color: "white"
+                        
+                        Behavior on x {
+                            NumberAnimation { duration: 200; easing.type: Easing.InOutQuad }
+                        }
+                        
+                        // iOS-style shadow
+                        layer.enabled: true
+                        layer.effect: MultiEffect {
+                            shadowEnabled: true
+                            shadowColor: "#40000000"
+                            shadowBlur: 0.4
+                            shadowHorizontalOffset: 0
+                            shadowVerticalOffset: 1
+                        }
+                    }
+                }
+            }
+        }
+
         Button {
             id: pttButton
             Layout.fillWidth: true
@@ -515,6 +589,11 @@ Item {
                     saved.callsign = stableCallsign
                     saved.key = stableKey
                     saved.talkgroup = stableTg
+                    
+                    // Apply speaker preference on iOS when connected
+                    if (Qt.platform.os === "ios") {
+                        IOSVoIPHandler.setAudioOutputToSpeaker(saved.useSpeaker)
+                    }
                 }
             }
             

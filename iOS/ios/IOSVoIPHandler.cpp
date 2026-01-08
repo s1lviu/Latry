@@ -265,6 +265,25 @@ void IOSVoIPHandler::releaseScreenWakeLock()
 #endif
 }
 
+void IOSVoIPHandler::setAudioOutputToSpeaker(bool useSpeaker)
+{
+#ifdef Q_OS_IOS
+    ios_setAudioOutputToSpeaker(useSpeaker ? 1 : 0);
+    qDebug() << "IOSVoIPHandler: Audio output set to" << (useSpeaker ? "speaker" : "receiver/earpiece");
+#else
+    qDebug() << "IOSVoIPHandler: Audio output routing (non-iOS platform)";
+#endif
+}
+
+bool IOSVoIPHandler::isAudioOutputToSpeaker() const
+{
+#ifdef Q_OS_IOS
+    return ios_isAudioOutputToSpeaker() != 0;
+#else
+    return false;
+#endif
+}
+
 void IOSVoIPHandler::handleAudioInterruption(int type)
 {
     qDebug() << "IOSVoIPHandler: Audio interruption received, type:" << type;

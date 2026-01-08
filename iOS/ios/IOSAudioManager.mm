@@ -45,6 +45,7 @@ void handleIOSAudioInterruption(int type);
         _backgroundTask = UIBackgroundTaskInvalid;
         _audioSession = [AVAudioSession sharedInstance];
         _screenWakeLockActive = NO;
+        _audioOutputToSpeaker = YES; // Default to speaker for better audio volume
         
         // Register for audio session interruption notifications
         [[NSNotificationCenter defaultCenter] addObserver:self
@@ -136,6 +137,9 @@ void handleIOSAudioInterruption(int type);
         if (actualSampleRate != 16000.0 && actualSampleRate != 24000.0 && actualSampleRate != 48000.0) {
             NSLog(@"IOSAudioManager: WARNING - Hardware selected non-VoIP sample rate: %.0fHz", actualSampleRate);
         }
+        
+        // Apply audio routing preference after activation
+        [self setAudioOutputToSpeaker:self.audioOutputToSpeaker];
     }
 }
 
@@ -269,6 +273,27 @@ void handleIOSAudioInterruption(int type);
     return self.screenWakeLockActive;
 }
 
+#pragma mark - Audio Output Routing
+
+- (void)setAudioOutputToSpeaker:(BOOL)useSpeaker {
+    self.audioOutputToSpeaker = useSpeaker;
+    
+    NSError *error = nil;
+    AVAudioSessionPortOverride override = useSpeaker ? AVAudioSessionPortOverrideSpeaker : AVAudioSessionPortOverrideNone;
+    
+    [self.audioSession overrideOutputAudioPort:override error:&error];
+    
+    if (error) {
+        NSLog(@"IOSAudioManager: Failed to set audio output routing: %@", error.localizedDescription);
+    } else {
+        NSLog(@"IOSAudioManager: Audio output routed to %@", useSpeaker ? @"speaker" : @"receiver/earpiece");
+    }
+}
+
+- (BOOL)isAudioOutputToSpeaker {
+    return self.audioOutputToSpeaker;
+}
+
 @end
 
 #pragma mark - C Interface for Qt Integration
@@ -321,4 +346,12 @@ void ios_releaseScreenWakeLock(void) {
 
 int ios_isScreenWakeLockActive(void) {
     return [[IOSAudioManager sharedInstance] isScreenWakeLockActive] ? 1 : 0;
+}
+
+void ios_setAudioOutputToSpeaker(int useSpeaker) {
+    [[IOSAudioManager sharedInstance] setAudioOutputToSpeaker:(useSpeaker != 0)];
+}
+
+int ios_isAudioOutputToSpeaker(void) {
+    return [[IOSAudioManager sharedInstance] isAudioOutputToSpeaker] ? 1 : 0;
 }

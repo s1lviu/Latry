@@ -112,6 +112,16 @@ int main(int argc, char *argv[])
             return new BatteryOptimizationHandler();
         });
 
+#if defined(Q_OS_IOS)
+    // Register IOSVoIPHandler as a singleton for QML access
+    qmlRegisterSingletonType<IOSVoIPHandler>("SvxlinkReflector.Client", 1, 0, "IOSVoIPHandler",
+        [](QQmlEngine *engine, QJSEngine *scriptEngine) -> QObject * {
+            Q_UNUSED(engine)
+            Q_UNUSED(scriptEngine)
+            return IOSVoIPHandler::instance();
+        });
+#endif
+
     const QUrl url(u"qrc:/Main.qml"_s);
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreated,
                      &app, [url](QObject *obj, const QUrl &objUrl) {

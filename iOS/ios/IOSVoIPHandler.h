@@ -57,8 +57,12 @@ public slots:
     void releaseBackgroundTask();
     
     // Screen wake lock management (equivalent to Android wake lock)
-    void acquireScreenWakeLock();
-    void releaseScreenWakeLock();
+    Q_INVOKABLE void acquireScreenWakeLock();
+    Q_INVOKABLE void releaseScreenWakeLock();
+    
+    // Audio output routing control
+    Q_INVOKABLE void setAudioOutputToSpeaker(bool useSpeaker);
+    Q_INVOKABLE bool isAudioOutputToSpeaker() const;
 
 signals:
     // Signals to notify ReflectorClient about system events

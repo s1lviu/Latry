@@ -44,6 +44,10 @@ void ios_acquireScreenWakeLock(void);
 void ios_releaseScreenWakeLock(void);
 int ios_isScreenWakeLockActive(void);
 
+// Audio output routing functions
+void ios_setAudioOutputToSpeaker(int useSpeaker);
+int ios_isAudioOutputToSpeaker(void);
+
 #ifdef __cplusplus
 }
 #endif
@@ -66,9 +70,14 @@ int ios_isScreenWakeLockActive(void);
 - (void)releaseScreenWakeLock;
 - (BOOL)isScreenWakeLockActive;
 
+// Audio output routing methods
+- (void)setAudioOutputToSpeaker:(BOOL)useSpeaker;
+- (BOOL)isAudioOutputToSpeaker;
+
 @property (nonatomic, assign) UIBackgroundTaskIdentifier backgroundTask;
 @property (nonatomic, strong) AVAudioSession *audioSession;
 @property (nonatomic, assign) BOOL screenWakeLockActive;
+@property (nonatomic, assign) BOOL audioOutputToSpeaker;
 
 @end
 #endif
