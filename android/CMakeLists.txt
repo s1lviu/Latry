@@ -108,6 +108,9 @@ if(ANDROID)
 
     # Add OpenSSL libs to APK
     add_android_openssl_libraries(applatry)
+
+    # Support 16 KB memory page sizes (required for Android 15+ / Google Play)
+    target_link_options(applatry PRIVATE "-Wl,-z,max-page-size=16384")
 else()
     target_link_libraries(applatry PRIVATE ${OPUS_LIBRARY})
 endif()
