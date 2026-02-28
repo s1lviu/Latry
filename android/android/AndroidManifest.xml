@@ -87,8 +87,5 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/qtprovider_paths"/>
         </provider>
-
-        <!-- Support 16 KB memory page sizes (required for Android 15+ / Google Play) -->
-        <property android:name="android.page_size.compat" android:value="true"/>
     </application>
 </manifest>

@@ -10,7 +10,7 @@ set(CMAKE_AUTOUIC ON)
 # --- Find/Build All Dependencies FIRST ---
 
 # 1. Find Qt6 - This MUST come before any qt_* commands.
-find_package(Qt6 6.9 REQUIRED COMPONENTS Quick Network Multimedia)
+find_package(Qt6 6.10 REQUIRED COMPONENTS Quick Network Multimedia)
 if(ANDROID)
     # AndroidExtras is optional in Qt 6.5+ where APIs moved to QtCore
     find_package(Qt6AndroidExtras QUIET)
@@ -108,9 +108,6 @@ if(ANDROID)
 
     # Add OpenSSL libs to APK
     add_android_openssl_libraries(applatry)
-
-    # Support 16 KB memory page sizes (required for Android 15+ / Google Play)
-    target_link_options(applatry PRIVATE "-Wl,-z,max-page-size=16384")
 else()
     target_link_libraries(applatry PRIVATE ${OPUS_LIBRARY})
 endif()
