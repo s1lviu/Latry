@@ -578,11 +578,29 @@ Item {
                 horizontalAlignment: Text.AlignHCenter
                 font.pixelSize: 20
                 elide: Text.ElideRight
-                color: isDarkMode ? "#FFFFFF" : "#000000"
+                color: ReflectorClient.totWarningActive ? "#FF9500" : (isDarkMode ? "#FFFFFF" : "#000000")
             }
         }
 
-        Item { 
+        Label {
+            id: totCutoffLabel
+            Layout.fillWidth: true
+            Layout.preferredHeight: 30
+            text: "TOT reached"
+            horizontalAlignment: Text.AlignHCenter
+            font.pixelSize: 18
+            font.bold: true
+            color: "#FF3B30"
+            visible: false
+
+            Timer {
+                id: totCutoffDismissTimer
+                interval: 2000
+                onTriggered: totCutoffLabel.visible = false
+            }
+        }
+
+        Item {
             Layout.fillHeight: true
             Layout.minimumHeight: 10
         }
@@ -604,7 +622,9 @@ Item {
                     if (!pttButton.enabled) {
                         return Qt.platform.os === "ios" ? "#8E8E93" : "#CCCCCC" // iOS gray for disabled state
                     } else if (ReflectorClient.pttActive) {
-                        return Qt.platform.os === "ios" ? "#FF3B30" : "darkred" // iOS red
+                        return ReflectorClient.totWarningActive
+                            ? "#FF9500"  // amber warning
+                            : (Qt.platform.os === "ios" ? "#FF3B30" : "darkred")
                     } else if (pttButton.down) {
                         return Qt.platform.os === "ios" ? "#34C759" : "lightblue" // iOS green when pressed
                     } else {
@@ -690,7 +710,11 @@ Item {
                     saved.talkgroup = stableTg
                 }
             }
-            
+
+            function onTotCutoffTriggered() {
+                totCutoffLabel.visible = true
+                totCutoffDismissTimer.start()
+            }
         }
     }
 }
