@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import QtCore
 import QtQuick.Effects
 import SvxlinkReflector.Client 1.0
+import QtMultimedia
 
 Window {
     width: 360
@@ -44,6 +45,11 @@ Window {
 
     BatteryOptimizationDialog {
         id: batteryDialog
+    }
+
+    SoundEffect {
+        id: totWarningSound
+        source: "qrc:/sounds/tot_warning.wav"
     }
 
     Connections {
@@ -714,6 +720,12 @@ Item {
             function onTotCutoffTriggered() {
                 totCutoffLabel.visible = true
                 totCutoffDismissTimer.start()
+            }
+
+            function onTotWarningTriggered() {
+                if (ReflectorClient.totWarnAudio) {
+                    totWarningSound.play()
+                }
             }
         }
     }
