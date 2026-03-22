@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtCore
 import SvxlinkReflector.Client 1.0
+import QtMultimedia
 
 Window {
     width: 360
@@ -42,11 +43,21 @@ Window {
         }
     }
 
+    SoundEffect {
+        id: totWarningSound
+        source: "qrc:/sounds/tot_warning.wav"
+    }
+
     // Set application organization info to fix Settings warnings
     Component.onCompleted: {
         Qt.application.organization = "YO6SAY"
         Qt.application.organizationDomain = "yo6say.com"
         Qt.application.name = "Latry"
+        ReflectorClient.totEnabled = saved.totEnabled
+        ReflectorClient.totDuration = saved.totDuration
+        ReflectorClient.totWarnVisual = saved.totWarnVisual
+        ReflectorClient.totWarnAudio = saved.totWarnAudio
+        ReflectorClient.totWarnVibration = saved.totWarnVibration
     }
 
     Settings {
@@ -57,6 +68,11 @@ Window {
         property string callsign: ""
         property string key: ""
         property string talkgroup: ""
+        property bool totEnabled: false
+        property int totDuration: 180
+        property bool totWarnVisual: true
+        property bool totWarnAudio: true
+        property bool totWarnVibration: true
     }
 
     // Store stable text values to avoid Android InputConnection issues
@@ -260,6 +276,118 @@ Item {
             }
         }
 
+        Frame {
+            Layout.fillWidth: true
+
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: 8
+
+                Label {
+                    text: "Transmission Settings"
+                    font.pixelSize: 14
+                    font.bold: true
+                    color: "#6C6C70"
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label {
+                        text: "Time Out Timer"
+                        font.pixelSize: 16
+                        Layout.fillWidth: true
+                    }
+                    Switch {
+                        id: totEnabledSwitch
+                        checked: saved.totEnabled
+                        onCheckedChanged: {
+                            saved.totEnabled = checked
+                            ReflectorClient.totEnabled = checked
+                        }
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    visible: totEnabledSwitch.checked
+                    spacing: 8
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label {
+                            text: "Duration"
+                            font.pixelSize: 14
+                            Layout.fillWidth: true
+                        }
+                        ComboBox {
+                            id: totDurationCombo
+                            model: ["0:30", "1:00", "1:30", "2:00", "2:30", "3:00", "Custom"]
+                            property var durations: [30, 60, 90, 120, 150, 180]
+                            property bool initialized: false
+
+                            Component.onCompleted: {
+                                var idx = durations.indexOf(saved.totDuration)
+                                currentIndex = idx >= 0 ? idx : 6
+                                if (idx < 0) customDurationInput.text = saved.totDuration.toString()
+                                initialized = true
+                            }
+
+                            onCurrentIndexChanged: {
+                                if (!initialized) return
+                                if (currentIndex >= 0 && currentIndex < durations.length) {
+                                    saved.totDuration = durations[currentIndex]
+                                    ReflectorClient.totDuration = durations[currentIndex]
+                                }
+                            }
+                        }
+                    }
+
+                    TextField {
+                        id: customDurationInput
+                        Layout.fillWidth: true
+                        visible: totDurationCombo.currentIndex === 6
+                        placeholderText: "Seconds (10-600)"
+                        text: saved.totDuration.toString()
+                        validator: IntValidator { bottom: 10; top: 600 }
+                        onEditingFinished: {
+                            var val = parseInt(text)
+                            if (val >= 10 && val <= 600) {
+                                saved.totDuration = val
+                                ReflectorClient.totDuration = val
+                            }
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label { text: "Visual warning"; font.pixelSize: 14; Layout.fillWidth: true }
+                        Switch {
+                            checked: saved.totWarnVisual
+                            onCheckedChanged: { saved.totWarnVisual = checked; ReflectorClient.totWarnVisual = checked }
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label { text: "Audio warning"; font.pixelSize: 14; Layout.fillWidth: true }
+                        Switch {
+                            checked: saved.totWarnAudio
+                            onCheckedChanged: { saved.totWarnAudio = checked; ReflectorClient.totWarnAudio = checked }
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label { text: "Vibration"; font.pixelSize: 14; Layout.fillWidth: true }
+                        Switch {
+                            checked: saved.totWarnVibration
+                            onCheckedChanged: { saved.totWarnVibration = checked; ReflectorClient.totWarnVibration = checked }
+                        }
+                    }
+                }
+            }
+        }
+
         StackLayout {
             Layout.fillWidth: true
 
@@ -285,10 +413,29 @@ Item {
                 font.pixelSize: 20
                 visible: ReflectorClient.pttActive
                 elide: Text.ElideRight
+                color: ReflectorClient.totWarningActive ? "#FF9500" : "black"
             }
         }
 
-        Item { 
+        Label {
+            id: totCutoffLabel
+            Layout.fillWidth: true
+            Layout.preferredHeight: 30
+            text: "TOT reached"
+            horizontalAlignment: Text.AlignHCenter
+            font.pixelSize: 18
+            font.bold: true
+            color: "#FF3B30"
+            visible: false
+
+            Timer {
+                id: totCutoffDismissTimer
+                interval: 2000
+                onTriggered: totCutoffLabel.visible = false
+            }
+        }
+
+        Item {
             Layout.fillHeight: true
             Layout.minimumHeight: 10
         }
@@ -306,7 +453,12 @@ Item {
                      ReflectorClient.audioReady
 
             background: Rectangle {
-                color: ReflectorClient.pttActive ? "darkred" : (pttButton.down ? "lightblue" : "lightgray")
+                color: {
+                    if (ReflectorClient.pttActive) {
+                        return ReflectorClient.totWarningActive ? "#FF9500" : "darkred"
+                    }
+                    return pttButton.down ? "lightblue" : "lightgray"
+                }
                 radius: 10
                 border.color: ReflectorClient.pttActive ? "red" : "gray"
                 border.width: 2
@@ -358,7 +510,20 @@ Item {
                     saved.talkgroup = stableTg
                 }
             }
-            
+
+            function onTotWarningTriggered() {
+                if (ReflectorClient.totWarnAudio) {
+                    totWarningSound.play()
+                }
+                if (ReflectorClient.totWarnVibration) {
+                    ReflectorClient.vibrateDevice()
+                }
+            }
+
+            function onTotCutoffTriggered() {
+                totCutoffLabel.visible = true
+                totCutoffDismissTimer.start()
+            }
         }
     }
 }
