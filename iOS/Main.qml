@@ -59,6 +59,11 @@ Window {
         Qt.application.organization = "YO6SAY"
         Qt.application.organizationDomain = "yo6say.com"
         Qt.application.name = "Latry"
+        ReflectorClient.totEnabled = saved.totEnabled
+        ReflectorClient.totDuration = saved.totDuration
+        ReflectorClient.totWarnVisual = saved.totWarnVisual
+        ReflectorClient.totWarnAudio = saved.totWarnAudio
+        ReflectorClient.totWarnVibration = saved.totWarnVibration
     }
 
     Settings {
@@ -70,6 +75,11 @@ Window {
         property string key: ""
         property string talkgroup: ""
         property string appWebsiteUrl: "https://latry.app/#ios"
+        property bool totEnabled: false
+        property int totDuration: 180
+        property bool totWarnVisual: true
+        property bool totWarnAudio: true
+        property bool totWarnVibration: true
     }
 
     // Store stable text values to avoid Android InputConnection issues
@@ -369,6 +379,169 @@ Item {
                             )
                         } else {
                             ReflectorClient.disconnectFromServer()
+                        }
+                    }
+                }
+            }
+        }
+
+        Frame {
+            Layout.fillWidth: true
+
+            background: Rectangle {
+                color: isDarkMode ? "#1C1C1E" : "#F2F2F7"
+                radius: Qt.platform.os === "ios" ? 10 : 4
+                border.color: isDarkMode ? "#38383A" : "#C6C6C8"
+                border.width: 1
+            }
+
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: 8
+
+                Label {
+                    text: "Transmission Settings"
+                    font.pixelSize: 14
+                    font.bold: true
+                    color: isDarkMode ? "#8E8E93" : "#6C6C70"
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label {
+                        text: "Time Out Timer"
+                        font.pixelSize: 16
+                        color: isDarkMode ? "#FFFFFF" : "#000000"
+                        Layout.fillWidth: true
+                    }
+                    Switch {
+                        id: totEnabledSwitch
+                        checked: saved.totEnabled
+                        onCheckedChanged: {
+                            saved.totEnabled = checked
+                            ReflectorClient.totEnabled = checked
+                        }
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    visible: totEnabledSwitch.checked
+                    spacing: 8
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label {
+                            text: "Duration"
+                            font.pixelSize: 14
+                            color: isDarkMode ? "#FFFFFF" : "#000000"
+                            Layout.fillWidth: true
+                        }
+                        ComboBox {
+                            id: totDurationCombo
+                            model: ["0:30", "1:00", "1:30", "2:00", "2:30", "3:00", "Custom"]
+                            property var durations: [30, 60, 90, 120, 150, 180]
+                            property bool initialized: false
+
+                            Component.onCompleted: {
+                                var idx = durations.indexOf(saved.totDuration)
+                                currentIndex = idx >= 0 ? idx : 6
+                                if (idx < 0) customDurationInput.text = saved.totDuration.toString()
+                                initialized = true
+                            }
+
+                            onCurrentIndexChanged: {
+                                if (!initialized) return
+                                if (currentIndex >= 0 && currentIndex < durations.length) {
+                                    saved.totDuration = durations[currentIndex]
+                                    ReflectorClient.totDuration = durations[currentIndex]
+                                }
+                            }
+
+                            background: Rectangle {
+                                color: isDarkMode ? "#2C2C2E" : "#FFFFFF"
+                                radius: Qt.platform.os === "ios" ? 8 : 4
+                                border.color: isDarkMode ? "#38383A" : "#C6C6C8"
+                                border.width: 1
+                            }
+                        }
+                    }
+
+                    TextField {
+                        id: customDurationInput
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Qt.platform.os === "ios" ? 44 : implicitHeight
+                        leftPadding: Qt.platform.os === "ios" ? 16 : 6
+                        rightPadding: Qt.platform.os === "ios" ? 16 : 6
+                        visible: totDurationCombo.currentIndex === 6
+                        placeholderText: "Seconds (10-600)"
+                        text: saved.totDuration.toString()
+                        validator: IntValidator { bottom: 10; top: 600 }
+                        color: isDarkMode ? "#FFFFFF" : "#000000"
+                        placeholderTextColor: isDarkMode ? "#8E8E93" : "#8E8E93"
+                        background: Rectangle {
+                            color: isDarkMode ? "#2C2C2E" : "#FFFFFF"
+                            radius: Qt.platform.os === "ios" ? 8 : 4
+                            border.color: isDarkMode ? "#38383A" : "#C6C6C8"
+                            border.width: 1
+                        }
+                        onEditingFinished: {
+                            var val = parseInt(text)
+                            if (val >= 10 && val <= 600) {
+                                saved.totDuration = val
+                                ReflectorClient.totDuration = val
+                            }
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label {
+                            text: "Visual warning"
+                            font.pixelSize: 14
+                            color: isDarkMode ? "#FFFFFF" : "#000000"
+                            Layout.fillWidth: true
+                        }
+                        Switch {
+                            checked: saved.totWarnVisual
+                            onCheckedChanged: {
+                                saved.totWarnVisual = checked
+                                ReflectorClient.totWarnVisual = checked
+                            }
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label {
+                            text: "Audio warning"
+                            font.pixelSize: 14
+                            color: isDarkMode ? "#FFFFFF" : "#000000"
+                            Layout.fillWidth: true
+                        }
+                        Switch {
+                            checked: saved.totWarnAudio
+                            onCheckedChanged: {
+                                saved.totWarnAudio = checked
+                                ReflectorClient.totWarnAudio = checked
+                            }
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label {
+                            text: "Vibration"
+                            font.pixelSize: 14
+                            color: isDarkMode ? "#FFFFFF" : "#000000"
+                            Layout.fillWidth: true
+                        }
+                        Switch {
+                            checked: saved.totWarnVibration
+                            onCheckedChanged: {
+                                saved.totWarnVibration = checked
+                                ReflectorClient.totWarnVibration = checked
+                            }
                         }
                     }
                 }
