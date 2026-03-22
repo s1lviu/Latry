@@ -46,6 +46,12 @@ class ReflectorClient : public QObject
     Q_PROPERTY(bool isDisconnected READ isDisconnected NOTIFY connectionStatusChanged)
     Q_PROPERTY(bool audioReady READ audioReady NOTIFY audioReadyChanged)
     Q_PROPERTY(bool isReceivingAudio READ isReceivingAudio NOTIFY isReceivingAudioChanged)
+    Q_PROPERTY(bool totEnabled READ totEnabled WRITE setTotEnabled NOTIFY totEnabledChanged)
+    Q_PROPERTY(int totDuration READ totDuration WRITE setTotDuration NOTIFY totDurationChanged)
+    Q_PROPERTY(bool totWarnVisual READ totWarnVisual WRITE setTotWarnVisual NOTIFY totWarnVisualChanged)
+    Q_PROPERTY(bool totWarnAudio READ totWarnAudio WRITE setTotWarnAudio NOTIFY totWarnAudioChanged)
+    Q_PROPERTY(bool totWarnVibration READ totWarnVibration WRITE setTotWarnVibration NOTIFY totWarnVibrationChanged)
+    Q_PROPERTY(bool totWarningActive READ totWarningActive NOTIFY totWarningActiveChanged)
 
 public:
     static ReflectorClient* instance();
@@ -59,6 +65,17 @@ public:
     bool isDisconnected() const { return m_state == Disconnected; }
     bool audioReady() const { return m_audioReady; }
     bool isReceivingAudio() const { return m_isReceivingAudio; }
+    bool totEnabled() const { return m_totEnabled; }
+    void setTotEnabled(bool enabled);
+    int totDuration() const { return m_totDuration; }
+    void setTotDuration(int seconds);
+    bool totWarnVisual() const { return m_totWarnVisual; }
+    void setTotWarnVisual(bool enabled);
+    bool totWarnAudio() const { return m_totWarnAudio; }
+    void setTotWarnAudio(bool enabled);
+    bool totWarnVibration() const { return m_totWarnVibration; }
+    void setTotWarnVibration(bool enabled);
+    bool totWarningActive() const { return m_totWarningActive; }
 
     Q_INVOKABLE void connectToServer(const QString &host, int port, const QString &authKey, const QString &callsign, quint32 talkgroup);
     Q_INVOKABLE void disconnectFromServer();
@@ -96,7 +113,16 @@ signals:
     void stateEventReceived(const QString &src, const QString &name, const QString &message);
     void signalStrengthReceived(const QString &callsign, float rxSignal, float rxSqlOpen);
     void txStatusReceived(const QString &callsign, bool isTransmitting);
-    
+    // TOT signals
+    void totEnabledChanged();
+    void totDurationChanged();
+    void totWarnVisualChanged();
+    void totWarnAudioChanged();
+    void totWarnVibrationChanged();
+    void totWarningActiveChanged();
+    void totWarningTriggered();
+    void totCutoffTriggered();
+
     // Audio focus signals (Android)
     void audioFocusLost();
     void audioFocusPaused();
@@ -196,6 +222,15 @@ private:
     QNetworkReply* m_nameReply = nullptr;
     QString m_currentTalkerName;
     QDateTime m_lastTalkerTimestamp;
+
+    // TOT state
+    bool m_totEnabled = false;
+    int m_totDuration = 180;
+    bool m_totWarnVisual = true;
+    bool m_totWarnAudio = true;
+    bool m_totWarnVibration = true;
+    bool m_totWarningActive = false;
+    int m_effectiveTotDuration = 0; // snapshot at TX start
 };
 
 #endif // REFLECTORCLIENT_H

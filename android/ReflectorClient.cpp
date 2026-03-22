@@ -479,16 +479,24 @@ void ReflectorClient::startTransmission() {
         emit txTimeStringChanged();
         m_txTimer->start();
     }
-    
+
+    // Snapshot TOT duration for this transmission
+    m_effectiveTotDuration = m_totEnabled ? m_totDuration : 0;
+
     // Start recording through AudioEngine
     QMetaObject::invokeMethod(m_audioEngine, "startRecording", Qt::QueuedConnection);
     qInfo() << "PTT Pressed: Recording started.";
 }
 void ReflectorClient::pttReleased() {
     if (!m_pttActive) return;
-    m_pttActive = false; 
+    m_pttActive = false;
     emit pttActiveChanged();
-    
+
+    if (m_totWarningActive) {
+        m_totWarningActive = false;
+        emit totWarningActiveChanged();
+    }
+
     if (m_txTimer) {
         m_txTimer->stop();
         m_txSeconds = 0;
@@ -1112,10 +1120,57 @@ QString ReflectorClient::currentTalkerName() const
     return m_currentTalkerName;
 }
 
+void ReflectorClient::setTotEnabled(bool enabled) {
+    if (m_totEnabled == enabled) return;
+    m_totEnabled = enabled;
+    emit totEnabledChanged();
+}
+
+void ReflectorClient::setTotDuration(int seconds) {
+    seconds = qBound(10, seconds, 600);
+    if (m_totDuration == seconds) return;
+    m_totDuration = seconds;
+    emit totDurationChanged();
+}
+
+void ReflectorClient::setTotWarnVisual(bool enabled) {
+    if (m_totWarnVisual == enabled) return;
+    m_totWarnVisual = enabled;
+    emit totWarnVisualChanged();
+}
+
+void ReflectorClient::setTotWarnAudio(bool enabled) {
+    if (m_totWarnAudio == enabled) return;
+    m_totWarnAudio = enabled;
+    emit totWarnAudioChanged();
+}
+
+void ReflectorClient::setTotWarnVibration(bool enabled) {
+    if (m_totWarnVibration == enabled) return;
+    m_totWarnVibration = enabled;
+    emit totWarnVibrationChanged();
+}
+
 void ReflectorClient::onTxTimerTimeout()
 {
     ++m_txSeconds;
     emit txTimeStringChanged();
+
+    if (m_effectiveTotDuration > 0) {
+        int warningAt = m_effectiveTotDuration - 5;
+        if (m_txSeconds == warningAt && !m_totWarningActive) {
+            m_totWarningActive = true;
+            emit totWarningActiveChanged();
+            emit totWarningTriggered();
+            qInfo() << "TOT warning: " << 5 << "seconds remaining";
+        }
+        if (m_txSeconds >= m_effectiveTotDuration) {
+            qInfo() << "TOT reached: auto-releasing PTT after" << m_txSeconds << "seconds";
+            emit totCutoffTriggered();
+            pttReleased();
+            return;
+        }
+    }
 }
 
 void ReflectorClient::onNameLookupFinished()
