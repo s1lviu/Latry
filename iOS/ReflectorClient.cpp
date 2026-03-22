@@ -24,6 +24,9 @@
 #include <QThread>
 #include <QMetaObject>
 #include <QCoreApplication>
+#if defined(Q_OS_IOS)
+#include <AudioToolbox/AudioServices.h>
+#endif
 #if defined(Q_OS_ANDROID)
 #  include <QtCore/private/qandroidextras_p.h>
 #  include <QtCore/QJniObject>
@@ -1220,6 +1223,12 @@ void ReflectorClient::setTotWarnVibration(bool enabled) {
     if (m_totWarnVibration == enabled) return;
     m_totWarnVibration = enabled;
     emit totWarnVibrationChanged();
+}
+
+void ReflectorClient::vibrateDevice() {
+#if defined(Q_OS_IOS)
+    AudioServicesPlaySystemSound(kSystemSoundID_Vibrate);
+#endif
 }
 
 void ReflectorClient::onTxTimerTimeout()

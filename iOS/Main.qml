@@ -726,6 +726,9 @@ Item {
                 if (ReflectorClient.totWarnAudio) {
                     totWarningSound.play()
                 }
+                if (ReflectorClient.totWarnVibration) {
+                    ReflectorClient.vibrateDevice()
+                }
             }
         }
     }
