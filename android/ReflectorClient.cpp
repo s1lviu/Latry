@@ -1151,6 +1151,24 @@ void ReflectorClient::setTotWarnVibration(bool enabled) {
     emit totWarnVibrationChanged();
 }
 
+void ReflectorClient::vibrateDevice() {
+#if defined(Q_OS_ANDROID)
+    QJniObject activity = QJniObject::callStaticObjectMethod(
+        "org/qtproject/qt/android/QtNative",
+        "activity",
+        "()Landroid/app/Activity;");
+    if (!activity.isValid()) return;
+
+    QJniObject vibrator = activity.callObjectMethod(
+        "getSystemService",
+        "(Ljava/lang/String;)Ljava/lang/Object;",
+        QJniObject::fromString("vibrator").object<jstring>());
+    if (!vibrator.isValid()) return;
+
+    vibrator.callMethod<void>("vibrate", "(J)V", jlong(200));
+#endif
+}
+
 void ReflectorClient::onTxTimerTimeout()
 {
     ++m_txSeconds;

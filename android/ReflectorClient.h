@@ -81,6 +81,7 @@ public:
     Q_INVOKABLE void disconnectFromServer();
     Q_INVOKABLE void pttPressed();
     Q_INVOKABLE void pttReleased();
+    Q_INVOKABLE void vibrateDevice();
 
 #if defined(Q_OS_ANDROID)
     // Android audio focus callbacks (public for JNI access)
