@@ -16,7 +16,6 @@
  */
 
 #include "ReflectorClient.h"
-#include "SppPttBridge.h"
 #include "AppLaunchMode.h"
 #include <QCoreApplication>
 #include <QThread>

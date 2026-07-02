@@ -33,13 +33,13 @@ set(LATRY_CORE_SOURCES
     AudioStreamDevice.cpp
     OpusWrapper.cpp
     Resampler.cpp
-    SppPttBridge.cpp
 )
 
 set(LATRY_APP_SOURCES
     main.cpp
     ${LATRY_CORE_SOURCES}
     BatteryOptimizationHandler.cpp
+    SppPttBridge.cpp
     ReflectorClientSpp.cpp
 )
 
