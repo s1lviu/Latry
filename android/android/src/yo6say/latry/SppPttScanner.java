@@ -17,30 +17,36 @@ import java.util.concurrent.Executors;
 
 /**
  * Scans paired Classic Bluetooth (SPP/RFCOMM) devices during PTT learning
- * mode to detect Zello-protocol PTT buttons such as the Inrico B02.
+ * mode to detect any SPP PTT button.
  *
- * When learning mode starts, this scanner attempts an RFCOMM connection to
- * each paired Classic BT device in turn. If a device sends "+PTT=P" (or
- * any case variant) within the learning timeout, the device's name and
- * address are reported via the {@link Callback} interface and saved to
- * {@link HardwarePttSettingsStore}.
+ * When a device sends ANY data while in learning mode, we record:
+ *   1. The device name and address.
+ *   2. The exact string sent on press (first message).
+ *   3. The exact string sent on release (second message).
  *
- * Lifecycle: call {@link #startScanning} when learning mode begins, and
- * {@link #stopScanning} when it ends (timeout, cancel, or key capture).
- * Only one scan may be active at a time.
+ * This makes the bridge protocol-agnostic – it works with any SPP PTT
+ * device regardless of whether it uses "+PTT=P", "PTT_ON", 0x01, or
+ * any other convention.
  */
 final class SppPttScanner {
     interface Callback {
-        /** Called on the main thread when a SPP PTT device is detected. */
-        void onSppPttDeviceDetected(String name, String address);
+        /**
+         * Called on the main thread when a SPP PTT device press+release
+         * sequence has been detected.
+         *
+         * @param name          Bluetooth device name
+         * @param address       Bluetooth device MAC address
+         * @param pressPattern  Raw string received on button press
+         * @param releasePattern Raw string received on button release
+         */
+        void onSppPttDeviceDetected(String name, String address,
+                                    String pressPattern, String releasePattern);
     }
 
     private static final String TAG = "LatrySppPttScanner";
     private static final UUID SPP_UUID =
             UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
     private static final int READ_TIMEOUT_MS = 12_000;
-    private static final int CONNECT_TIMEOUT_MS = 3_000;
-    private static final byte[] PTT_PRESS_PATTERN = "+ptt=p".getBytes();
 
     private static volatile boolean scanning = false;
     private static ExecutorService executor;
@@ -49,14 +55,6 @@ final class SppPttScanner {
     private SppPttScanner() {
     }
 
-    /**
-     * Starts scanning paired SPP devices. Each device is probed on a
-     * background thread. Stops automatically on first detection.
-     *
-     * @param context  Android context (used for permission checks and storage).
-     * @param callback Notified on main thread when a SPP PTT device is found.
-     * @return true if scanning started, false if already scanning or BT unavailable.
-     */
     static boolean startScanning(Context context, Callback callback) {
         if (scanning) {
             Log.w(TAG, "startScanning: already active");
@@ -78,9 +76,7 @@ final class SppPttScanner {
         scanning = true;
         executor = Executors.newCachedThreadPool();
 
-        // Probe each paired Classic BT device in parallel on background threads.
         for (final BluetoothDevice device : pairedDevices) {
-            // Skip BLE-only devices (they have no SPP RFCOMM channel).
             if (device.getType() == BluetoothDevice.DEVICE_TYPE_LE) {
                 Log.d(TAG, "Skipping LE-only device: " + device.getName());
                 continue;
@@ -97,10 +93,6 @@ final class SppPttScanner {
         return true;
     }
 
-    /**
-     * Stops all active SPP probes immediately.
-     * Safe to call even if not scanning.
-     */
     static void stopScanning() {
         if (!scanning) {
             return;
@@ -125,18 +117,20 @@ final class SppPttScanner {
         BluetoothSocket socket = null;
         try {
             socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
-            socket.connect(); // blocks up to system timeout (~10s for RFCOMM)
+            socket.connect();
 
             if (!scanning) {
-                return; // another device was already detected
+                return;
             }
 
-            Log.i(TAG, "SPP connected to: " + name + " – listening for PTT pattern");
+            Log.i(TAG, "SPP connected to: " + name + " – waiting for press+release");
 
             final InputStream stream = socket.getInputStream();
             final byte[] buf = new byte[64];
             final long deadline = System.currentTimeMillis() + READ_TIMEOUT_MS;
-            final StringBuilder received = new StringBuilder();
+
+            String pressPattern = null;
+            String releasePattern = null;
 
             while (scanning && System.currentTimeMillis() < deadline) {
                 final int available = stream.available();
@@ -146,28 +140,45 @@ final class SppPttScanner {
                 }
 
                 final int n = stream.read(buf, 0, Math.min(available, buf.length));
-                if (n > 0) {
-                    received.append(new String(buf, 0, n).toLowerCase());
-                    Log.d(TAG, "SPP received from " + name + ": " + received);
+                if (n <= 0) {
+                    continue;
+                }
 
-                    if (received.toString().contains("+ptt=p")) {
-                        Log.i(TAG, "SPP PTT press detected from: " + name
-                                + " (" + address + ")");
-                        onDeviceDetected(context, name, address, callback);
-                        return;
-                    }
+                // Trim whitespace/newlines and use raw string as pattern
+                final String received = new String(buf, 0, n).trim();
+                if (received.isEmpty()) {
+                    continue;
+                }
 
-                    // Limit buffer size – we only need a few characters
-                    if (received.length() > 128) {
-                        received.delete(0, received.length() - 32);
-                    }
+                Log.i(TAG, "SPP received from " + name + ": [" + received + "]");
+
+                if (pressPattern == null) {
+                    // First message = press pattern
+                    pressPattern = received;
+                    Log.i(TAG, "Learned press pattern: [" + pressPattern + "]");
+                } else if (releasePattern == null && !received.equals(pressPattern)) {
+                    // Second distinct message = release pattern
+                    releasePattern = received;
+                    Log.i(TAG, "Learned release pattern: [" + releasePattern + "]");
+
+                    // We have both – report success
+                    final String finalPress = pressPattern;
+                    final String finalRelease = releasePattern;
+                    onDeviceDetected(context, name, address,
+                                     finalPress, finalRelease, callback);
+                    return;
                 }
             }
 
-            Log.d(TAG, "No PTT pattern received from: " + name + " within timeout");
+            if (pressPattern != null) {
+                // Got press but no release within timeout – use empty string for release
+                Log.w(TAG, "Got press pattern but no release from: " + name);
+                onDeviceDetected(context, name, address, pressPattern, "", callback);
+            } else {
+                Log.d(TAG, "No PTT pattern received from: " + name + " within timeout");
+            }
 
         } catch (IOException e) {
-            // Normal – most paired devices won't have a SPP server running
             Log.d(TAG, "SPP connect/read failed for " + name + ": " + e.getMessage());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -181,16 +192,21 @@ final class SppPttScanner {
     private static void onDeviceDetected(Context context,
                                          String name,
                                          String address,
+                                         String pressPattern,
+                                         String releasePattern,
                                          Callback callback) {
-        // Only the first detection wins
         if (!scanning) {
             return;
         }
         scanning = false;
 
-        HardwarePttSettingsStore.setLearnedSppDevice(context, name, address);
-        Log.i(TAG, "Learned SPP PTT device: " + name + " (" + address + ")");
+        HardwarePttSettingsStore.setLearnedSppDevice(
+                context, name, address, pressPattern, releasePattern);
+        Log.i(TAG, "Learned SPP PTT device: " + name
+                + " press=[" + pressPattern + "]"
+                + " release=[" + releasePattern + "]");
 
-        mainHandler.post(() -> callback.onSppPttDeviceDetected(name, address));
+        mainHandler.post(() -> callback.onSppPttDeviceDetected(
+                name, address, pressPattern, releasePattern));
     }
 }

@@ -113,12 +113,20 @@ void SppPttBridge::onDiscoveryFinished()
                   : QStringLiteral("Scan finished - select a device"));
 }
 
-void SppPttBridge::selectDevice(const QString &name, const QString &address)
+void SppPttBridge::selectDevice(const QString &name, const QString &address,
+                                const QString &pressPattern,
+                                const QString &releasePattern)
 {
-    m_deviceName = name;
+    m_deviceName    = name;
     m_deviceAddress = address;
+ 
+    // Use provided patterns, or fall back to the Zello/Inrico B02 defaults
+    // if none are given (backwards compatibility).
+    m_pressPattern   = pressPattern.isEmpty()   ? QStringLiteral("+ptt=p")   : pressPattern;
+    m_releasePattern = releasePattern.isEmpty() ? QStringLiteral("+ptt=r") : releasePattern;
+ 
     emit pairedDeviceChanged();
-
+ 
     if (m_enabled) {
         connectToSavedDevice();
     }
@@ -261,15 +269,24 @@ void SppPttBridge::onSocketReadyRead()
     // The Inrico B02 in practice sends "+PTT=P" / "+PTT=R" with NO trailing
     // newline at all, so we also scan the raw buffer directly for these
     // patterns and consume up to and including the match.
-    const QByteArray lowerBuf = m_rxBuffer.toLower();
-    int pIdx = lowerBuf.indexOf("+ptt=p");
-    int rIdx = lowerBuf.indexOf("+ptt=r");
-    if (pIdx >= 0) {
-        emit pttButtonPressed();
-        m_rxBuffer.remove(0, pIdx + 6);
-    } else if (rIdx >= 0) {
-        emit pttButtonReleased();
-        m_rxBuffer.remove(0, rIdx + 6);
+    const QByteArray lowerBuf    = m_rxBuffer.toLower();
+    const QByteArray lowerPress   = m_pressPattern.toLower().toUtf8();
+    const QByteArray lowerRelease = m_releasePattern.toLower().toUtf8();
+ 
+    if (!lowerPress.isEmpty()) {
+        int pIdx = lowerBuf.indexOf(lowerPress);
+        if (pIdx >= 0) {
+            emit pttButtonPressed();
+            m_rxBuffer.remove(0, pIdx + lowerPress.size());
+            return;
+        }
+    }
+    if (!lowerRelease.isEmpty()) {
+        int rIdx = lowerBuf.indexOf(lowerRelease);
+        if (rIdx >= 0) {
+            emit pttButtonReleased();
+            m_rxBuffer.remove(0, rIdx + lowerRelease.size());
+        }
     }
 
     // Avoid unbounded growth if we never find a delimiter/pattern.
@@ -286,13 +303,14 @@ void SppPttBridge::processLine(const QByteArray &rawLine)
 
     qDebug() << "SppPttBridge: received" << line;
 
-    if (line.contains("+ptt=p")) {
+    const QByteArray lowerPress   = m_pressPattern.toLower().toUtf8();
+    const QByteArray lowerRelease = m_releasePattern.toLower().toUtf8();
+
+    if (!lowerPress.isEmpty() && line.contains(lowerPress)) {
         emit pttButtonPressed();
-    } else if (line.contains("+ptt=r")) {
+    } else if (!lowerRelease.isEmpty() && line.contains(lowerRelease)) {
         emit pttButtonReleased();
     }
-    // Add other B02 commands here if needed, e.g. "+vol=+"/"+vol=-"
-    // for the volume/group-switch buttons.
 }
 
 void SppPttBridge::simulatePtt(bool pressed)

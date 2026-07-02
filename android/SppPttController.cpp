@@ -5,14 +5,6 @@
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
 #include "SppPttController.h"
@@ -25,28 +17,7 @@
 #  include <QJniObject>
 #endif
 
-// Helper: safely call a static Java method returning String, returning
-// an empty QString on any JNI error rather than crashing.
 #if defined(Q_OS_ANDROID)
-static QString safeJniGetString(const char *clazz,
-                                const char *method,
-                                jobject context)
-{
-    if (!context) {
-        return {};
-    }
-    try {
-        QJniObject result = QJniObject::callStaticObjectMethod(
-            clazz, method,
-            "(Landroid/content/Context;)Ljava/lang/String;",
-            context);
-        return result.isValid() ? result.toString() : QString{};
-    } catch (...) {
-        qWarning() << "SppPttController: JNI call failed:" << method;
-        return {};
-    }
-}
-
 static QJniObject safeGetContext()
 {
     try {
@@ -56,6 +27,23 @@ static QJniObject safeGetContext()
             "()Landroid/app/Activity;");
     } catch (...) {
         qWarning() << "SppPttController: failed to get Android context";
+        return {};
+    }
+}
+
+static QString safeJniGetString(const char *clazz,
+                                const char *method,
+                                jobject context)
+{
+    if (!context) return {};
+    try {
+        QJniObject result = QJniObject::callStaticObjectMethod(
+            clazz, method,
+            "(Landroid/content/Context;)Ljava/lang/String;",
+            context);
+        return result.isValid() ? result.toString() : QString{};
+    } catch (...) {
+        qWarning() << "SppPttController: JNI call failed:" << method;
         return {};
     }
 }
@@ -70,7 +58,7 @@ SppPttController::SppPttController(ReflectorClient *reflectorClient, QObject *pa
                 this, &SppPttController::onHardwarePttSettingsChanged);
     }
 
-    // Defer JNI calls slightly to ensure the Android runtime is fully ready.
+    // Defer JNI calls to ensure Android runtime is fully ready.
     QMetaObject::invokeMethod(this, [this]() {
         loadLearnedDevice();
         startBridgeIfNeeded();
@@ -101,6 +89,8 @@ void SppPttController::clearLearnedSppDevice()
 
     m_deviceName.clear();
     m_deviceAddress.clear();
+    m_pressPattern.clear();
+    m_releasePattern.clear();
     emit learnedSppDeviceChanged();
 
     stopBridge();
@@ -116,25 +106,38 @@ void SppPttController::loadLearnedDevice()
 {
     QString name;
     QString address;
+    QString pressPattern;
+    QString releasePattern;
 
 #if defined(Q_OS_ANDROID)
     QJniObject activity = safeGetContext();
     if (activity.isValid()) {
         jobject ctx = activity.object<jobject>();
-        name    = safeJniGetString("yo6say/latry/HardwarePttSettingsStore",
-                                   "getLearnedSppName", ctx);
-        address = safeJniGetString("yo6say/latry/HardwarePttSettingsStore",
-                                   "getLearnedSppAddress", ctx);
+        name          = safeJniGetString("yo6say/latry/HardwarePttSettingsStore",
+                                         "getLearnedSppName", ctx);
+        address       = safeJniGetString("yo6say/latry/HardwarePttSettingsStore",
+                                         "getLearnedSppAddress", ctx);
+        pressPattern  = safeJniGetString("yo6say/latry/HardwarePttSettingsStore",
+                                         "getLearnedSppPressPattern", ctx);
+        releasePattern = safeJniGetString("yo6say/latry/HardwarePttSettingsStore",
+                                          "getLearnedSppReleasePattern", ctx);
     }
 #endif
 
-    if (name == m_deviceName && address == m_deviceAddress) {
+    if (name == m_deviceName && address == m_deviceAddress
+            && pressPattern == m_pressPattern && releasePattern == m_releasePattern) {
         return;
     }
 
     m_deviceName    = name;
     m_deviceAddress = address;
-    qDebug() << "SppPttController: loaded device" << m_deviceName << m_deviceAddress;
+    m_pressPattern  = pressPattern;
+    m_releasePattern = releasePattern;
+
+    qDebug() << "SppPttController: loaded device" << m_deviceName
+             << "press=[" << m_pressPattern << "]"
+             << "release=[" << m_releasePattern << "]";
+
     emit learnedSppDeviceChanged();
 }
 
@@ -154,7 +157,8 @@ void SppPttController::startBridgeIfNeeded()
         }
     }
 
-    m_bridge->selectDevice(m_deviceName, m_deviceAddress);
+    m_bridge->selectDevice(m_deviceName, m_deviceAddress,
+                           m_pressPattern, m_releasePattern);
     m_bridge->setEnabled(true);
 }
 

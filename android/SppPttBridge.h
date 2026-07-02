@@ -59,7 +59,9 @@ public:
     Q_INVOKABLE void stopScan();
 
     // Persist + (re)connect to a chosen device, e.g. "B02_1234" / "AA:BB:CC:DD:EE:FF"
-    Q_INVOKABLE void selectDevice(const QString &name, const QString &address);
+    Q_INVOKABLE void selectDevice(const QString &name, const QString &address,
+                                  const QString &pressPattern = QString(),
+                                  const QString &releasePattern = QString());
 
     // Manually (re)connect using the previously saved device
     Q_INVOKABLE void reconnect();
@@ -99,6 +101,8 @@ private:
     QString m_status = QStringLiteral("Disabled");
     QString m_deviceName;
     QString m_deviceAddress;
+    QString m_pressPattern;
+    QString m_releasePattern;
 
     QBluetoothSocket *m_socket = nullptr;
     QBluetoothDeviceDiscoveryAgent *m_discoveryAgent = nullptr;
