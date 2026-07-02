@@ -433,8 +433,8 @@ void ReflectorClient::notifyHardwarePttLearningResult(int result, int keyCode)
                     emit client->hardwarePttSettingsChanged();
 #ifndef LATRY_SERVICE_BUILD
                     client->startSppPttBridgeIfNeeded();
-                }
 #endif
+                }
                 emit client->hardwarePttLearningActiveChanged();
                 emit client->hardwarePttLearningResultChanged();
             },
