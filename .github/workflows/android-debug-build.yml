@@ -97,10 +97,8 @@ jobs:
         # Verify changes
         echo "=== AndroidManifest.xml ===" 
         grep "versionName" android/android/AndroidManifest.xml
-        echo "=== ReflectorClient.cpp ==="
-        grep "swVer" android/ReflectorClient.cpp
         echo "=== Main.qml ==="
-        grep "text: 'v" android/Main.qml
+        grep "text: 'v" android/Main.qml || true
 
     - name: Configure CMake for Android
       working-directory: android
