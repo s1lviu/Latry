@@ -122,7 +122,7 @@ jobs:
     - name: Find and rename APK files
       id: find_apk
       run: |
-        APK_PATH=$(find android/build -name "*.apk" -type f | head -1)
+        APK_PATH=$(find android/build -name "*.apk" -type f | grep -v latryservice | head -1)
         if [ -z "$APK_PATH" ]; then
           echo "No APK found!"
           exit 1
