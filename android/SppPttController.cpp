@@ -22,7 +22,6 @@
 #if defined(Q_OS_ANDROID)
 #  include <QtCore/private/qandroidextras_p.h>
 #  include <QJniObject>
-#  include <QNativeInterface>
 #endif
 
 SppPttController::SppPttController(ReflectorClient *reflectorClient, QObject *parent)
@@ -44,7 +43,10 @@ SppPttController::~SppPttController()
 void SppPttController::clearLearnedSppDevice()
 {
 #if defined(Q_OS_ANDROID)
-    QJniObject activity = QNativeInterface::QAndroidApplication::context();
+    QJniObject activity = QJniObject::callStaticObjectMethod(
+        "org/qtproject/qt/android/QtNative",
+        "activity",
+        "()Landroid/app/Activity;");
     QJniObject::callStaticMethod<void>(
         "yo6say/latry/HardwarePttSettingsStore",
         "clearLearnedSppDevice",
@@ -74,7 +76,10 @@ void SppPttController::loadLearnedDevice()
     QString address;
 
 #if defined(Q_OS_ANDROID)
-    QJniObject activity = QNativeInterface::QAndroidApplication::context();
+    QJniObject activity = QJniObject::callStaticObjectMethod(
+        "org/qtproject/qt/android/QtNative",
+        "activity",
+        "()Landroid/app/Activity;");
     QJniObject nameObj = QJniObject::callStaticObjectMethod(
         "yo6say/latry/HardwarePttSettingsStore",
         "getLearnedSppName",

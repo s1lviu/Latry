@@ -43,7 +43,6 @@ void SppPttBridge::setEnabled(bool on)
         return;
 
     m_enabled = on;
-    m_settings.setValue("bluetoothPtt/enabled", m_enabled);
     emit enabledChanged();
 
     if (m_enabled) {
@@ -118,8 +117,6 @@ void SppPttBridge::selectDevice(const QString &name, const QString &address)
 {
     m_deviceName = name;
     m_deviceAddress = address;
-    m_settings.setValue("bluetoothPtt/deviceName", m_deviceName);
-    m_settings.setValue("bluetoothPtt/deviceAddress", m_deviceAddress);
     emit pairedDeviceChanged();
 
     if (m_enabled) {
