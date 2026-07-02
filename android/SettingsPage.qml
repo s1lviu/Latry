@@ -1536,7 +1536,6 @@ Page {
                                             enabled: (page.reflectorClient.learnedHardwarePttKeyCode > 0
                                                       || SppPttController.learnedSppDeviceAddress !== "")
                                                      && !page.reflectorClient.hardwarePttLearningActive
-                                            ...
                                             onClicked: {
                                                 if (SppPttController.learnedSppDeviceAddress !== "")
                                                     SppPttController.clearLearnedSppDevice()
