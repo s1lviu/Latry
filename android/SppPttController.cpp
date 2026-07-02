@@ -18,21 +18,63 @@
 #include "SppPttController.h"
 #include "SppPttBridge.h"
 #include "ReflectorClient.h"
+#include <QDebug>
 
 #if defined(Q_OS_ANDROID)
 #  include <QtCore/private/qandroidextras_p.h>
 #  include <QJniObject>
 #endif
 
+// Helper: safely call a static Java method returning String, returning
+// an empty QString on any JNI error rather than crashing.
+#if defined(Q_OS_ANDROID)
+static QString safeJniGetString(const char *clazz,
+                                const char *method,
+                                jobject context)
+{
+    if (!context) {
+        return {};
+    }
+    try {
+        QJniObject result = QJniObject::callStaticObjectMethod(
+            clazz, method,
+            "(Landroid/content/Context;)Ljava/lang/String;",
+            context);
+        return result.isValid() ? result.toString() : QString{};
+    } catch (...) {
+        qWarning() << "SppPttController: JNI call failed:" << method;
+        return {};
+    }
+}
+
+static QJniObject safeGetContext()
+{
+    try {
+        return QJniObject::callStaticObjectMethod(
+            "org/qtproject/qt/android/QtNative",
+            "activity",
+            "()Landroid/app/Activity;");
+    } catch (...) {
+        qWarning() << "SppPttController: failed to get Android context";
+        return {};
+    }
+}
+#endif
+
 SppPttController::SppPttController(ReflectorClient *reflectorClient, QObject *parent)
     : QObject(parent)
     , m_reflectorClient(reflectorClient)
 {
-    connect(m_reflectorClient, &ReflectorClient::hardwarePttSettingsChanged,
-            this, &SppPttController::onHardwarePttSettingsChanged);
+    if (m_reflectorClient) {
+        connect(m_reflectorClient, &ReflectorClient::hardwarePttSettingsChanged,
+                this, &SppPttController::onHardwarePttSettingsChanged);
+    }
 
-    loadLearnedDevice();
-    startBridgeIfNeeded();
+    // Defer JNI calls slightly to ensure the Android runtime is fully ready.
+    QMetaObject::invokeMethod(this, [this]() {
+        loadLearnedDevice();
+        startBridgeIfNeeded();
+    }, Qt::QueuedConnection);
 }
 
 SppPttController::~SppPttController()
@@ -43,15 +85,18 @@ SppPttController::~SppPttController()
 void SppPttController::clearLearnedSppDevice()
 {
 #if defined(Q_OS_ANDROID)
-    QJniObject activity = QJniObject::callStaticObjectMethod(
-        "org/qtproject/qt/android/QtNative",
-        "activity",
-        "()Landroid/app/Activity;");
-    QJniObject::callStaticMethod<void>(
-        "yo6say/latry/HardwarePttSettingsStore",
-        "clearLearnedSppDevice",
-        "(Landroid/content/Context;)V",
-        activity.object<jobject>());
+    QJniObject activity = safeGetContext();
+    if (activity.isValid()) {
+        try {
+            QJniObject::callStaticMethod<void>(
+                "yo6say/latry/HardwarePttSettingsStore",
+                "clearLearnedSppDevice",
+                "(Landroid/content/Context;)V",
+                activity.object<jobject>());
+        } catch (...) {
+            qWarning() << "SppPttController: failed to clear SPP device in Java";
+        }
+    }
 #endif
 
     m_deviceName.clear();
@@ -63,9 +108,6 @@ void SppPttController::clearLearnedSppDevice()
 
 void SppPttController::onHardwarePttSettingsChanged()
 {
-    // Called when ReflectorClient's PTT settings change – this includes when
-    // SppPttScanner reports a newly learned SPP device (result == 4 in JNI).
-    // Re-load from SharedPreferences and start the bridge if a device is now set.
     loadLearnedDevice();
     startBridgeIfNeeded();
 }
@@ -76,22 +118,14 @@ void SppPttController::loadLearnedDevice()
     QString address;
 
 #if defined(Q_OS_ANDROID)
-    QJniObject activity = QJniObject::callStaticObjectMethod(
-        "org/qtproject/qt/android/QtNative",
-        "activity",
-        "()Landroid/app/Activity;");
-    QJniObject nameObj = QJniObject::callStaticObjectMethod(
-        "yo6say/latry/HardwarePttSettingsStore",
-        "getLearnedSppName",
-        "(Landroid/content/Context;)Ljava/lang/String;",
-        activity.object<jobject>());
-    QJniObject addrObj = QJniObject::callStaticObjectMethod(
-        "yo6say/latry/HardwarePttSettingsStore",
-        "getLearnedSppAddress",
-        "(Landroid/content/Context;)Ljava/lang/String;",
-        activity.object<jobject>());
-    name    = nameObj.toString();
-    address = addrObj.toString();
+    QJniObject activity = safeGetContext();
+    if (activity.isValid()) {
+        jobject ctx = activity.object<jobject>();
+        name    = safeJniGetString("yo6say/latry/HardwarePttSettingsStore",
+                                   "getLearnedSppName", ctx);
+        address = safeJniGetString("yo6say/latry/HardwarePttSettingsStore",
+                                   "getLearnedSppAddress", ctx);
+    }
 #endif
 
     if (name == m_deviceName && address == m_deviceAddress) {
@@ -100,6 +134,7 @@ void SppPttController::loadLearnedDevice()
 
     m_deviceName    = name;
     m_deviceAddress = address;
+    qDebug() << "SppPttController: loaded device" << m_deviceName << m_deviceAddress;
     emit learnedSppDeviceChanged();
 }
 
@@ -111,10 +146,12 @@ void SppPttController::startBridgeIfNeeded()
 
     if (!m_bridge) {
         m_bridge = new SppPttBridge(this);
-        connect(m_bridge, &SppPttBridge::pttButtonPressed,
-                m_reflectorClient, &ReflectorClient::pttPressed);
-        connect(m_bridge, &SppPttBridge::pttButtonReleased,
-                m_reflectorClient, &ReflectorClient::pttReleased);
+        if (m_reflectorClient) {
+            connect(m_bridge, &SppPttBridge::pttButtonPressed,
+                    m_reflectorClient, &ReflectorClient::pttPressed);
+            connect(m_bridge, &SppPttBridge::pttButtonReleased,
+                    m_reflectorClient, &ReflectorClient::pttReleased);
+        }
     }
 
     m_bridge->selectDevice(m_deviceName, m_deviceAddress);
