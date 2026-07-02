@@ -898,7 +898,10 @@ void ReflectorClient::startHardwarePttLearning()
     }
 
 #if defined(Q_OS_ANDROID)
-    QJniObject activity = QNativeInterface::QAndroidApplication::context();
+    QJniObject activity = QJniObject::callStaticObjectMethod(
+        "org/qtproject/qt/android/QtNative",
+        "activity",
+        "()Landroid/app/Activity;");
     const jboolean started = QJniObject::callStaticMethod<jboolean>(
         "yo6say/latry/HardwarePttLearningCoordinator",
         "startLearning",
