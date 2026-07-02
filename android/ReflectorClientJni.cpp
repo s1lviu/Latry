@@ -414,6 +414,24 @@ void ReflectorClient::notifyHardwarePttLearningResult(int result, int keyCode)
                 if (result == 1 && keyCode > 0) { // RESULT_KEY_CAPTURED
                     client->m_learnedHardwarePttKeyCode = keyCode;
                     emit client->hardwarePttSettingsChanged();
+                } else if (result == 4) { // RESULT_SPP_DEVICE_CAPTURED
+#if defined(Q_OS_ANDROID)
+                    QJniObject activity = QNativeInterface::QAndroidApplication::context();
+                    QJniObject nameObj = QJniObject::callStaticObjectMethod(
+                        "yo6say/latry/HardwarePttSettingsStore",
+                        "getLearnedSppName",
+                        "(Landroid/content/Context;)Ljava/lang/String;",
+                        activity.object<jobject>());
+                    QJniObject addrObj = QJniObject::callStaticObjectMethod(
+                        "yo6say/latry/HardwarePttSettingsStore",
+                        "getLearnedSppAddress",
+                        "(Landroid/content/Context;)Ljava/lang/String;",
+                        activity.object<jobject>());
+                    client->m_learnedSppDeviceName    = nameObj.toString();
+                    client->m_learnedSppDeviceAddress = addrObj.toString();
+#endif
+                    emit client->hardwarePttSettingsChanged();
+                    client->startSppPttBridgeIfNeeded();
                 }
 
                 emit client->hardwarePttLearningActiveChanged();

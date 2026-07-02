@@ -898,10 +898,12 @@ void ReflectorClient::startHardwarePttLearning()
     }
 
 #if defined(Q_OS_ANDROID)
+    QJniObject activity = QNativeInterface::QAndroidApplication::context();
     const jboolean started = QJniObject::callStaticMethod<jboolean>(
         "yo6say/latry/HardwarePttLearningCoordinator",
         "startLearning",
-        "()Z");
+        "(Landroid/content/Context;)Z",
+        activity.object<jobject>());
     if (!started) {
         qWarning() << "ReflectorClient: Failed to start hardware PTT learning";
         return;
@@ -1926,4 +1928,42 @@ void ReflectorClient::onAudioSetupFinished()
 #if defined(Q_OS_ANDROID)
     resumeAndroidPttAfterReconnectIfReady();
 #endif
+}
+
+void ReflectorClient::clearLearnedSppDevice()
+{
+#if defined(Q_OS_ANDROID)
+    QJniObject activity = QNativeInterface::QAndroidApplication::context();
+    QJniObject::callStaticMethod<void>(
+        "yo6say/latry/HardwarePttSettingsStore",
+        "clearLearnedSppDevice",
+        "(Landroid/content/Context;)V",
+        activity.object<jobject>());
+#endif
+    m_learnedSppDeviceName.clear();
+    m_learnedSppDeviceAddress.clear();
+    emit hardwarePttSettingsChanged();
+
+    if (m_sppPttBridge) {
+        m_sppPttBridge->setEnabled(false);
+        m_sppPttBridge.reset();
+    }
+}
+
+void ReflectorClient::startSppPttBridgeIfNeeded()
+{
+    if (m_learnedSppDeviceAddress.isEmpty()) {
+        return;
+    }
+
+    if (!m_sppPttBridge) {
+        m_sppPttBridge = std::make_unique<SppPttBridge>(this);
+        connect(m_sppPttBridge.get(), &SppPttBridge::pttButtonPressed,
+                this, &ReflectorClient::pttPressed);
+        connect(m_sppPttBridge.get(), &SppPttBridge::pttButtonReleased,
+                this, &ReflectorClient::pttReleased);
+    }
+
+    m_sppPttBridge->selectDevice(m_learnedSppDeviceName, m_learnedSppDeviceAddress);
+    m_sppPttBridge->setEnabled(true);
 }

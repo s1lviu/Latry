@@ -1532,10 +1532,16 @@ Page {
                                                               ? Qt.AlignLeft
                                                               : Qt.AlignVCenter
                                             text: qsTr("Clear")
-                                            enabled: page.reflectorClient.learnedHardwarePttKeyCode > 0
+                                            enabled: (page.reflectorClient.learnedHardwarePttKeyCode > 0
+                                                      || page.reflectorClient.learnedSppDeviceAddress !== "")
                                                      && !page.reflectorClient.hardwarePttLearningActive
                                             Accessible.name: qsTr("Clear learned hardware PTT key code")
-                                            onClicked: page.clearLearnedHardwarePttKeyCodeRequested()
+                                            onClicked: {
+                                                if (page.reflectorClient.learnedSppDeviceAddress !== "")
+                                                    page.reflectorClient.clearLearnedSppDevice()
+                                                else
+                                                    page.clearLearnedHardwarePttKeyCodeRequested()
+                                            }
                                         }
                                     }
 
@@ -1545,7 +1551,9 @@ Page {
                                         Layout.fillWidth: true
                                         text: {
                                             if (page.reflectorClient.hardwarePttLearningActive)
-                                                return qsTr("Press a hardware button now...")
+                                                return qsTr("Press a hardware button or activate a Bluetooth SPP PTT device now...")
+                                            if (page.reflectorClient.learnedSppDeviceAddress !== "")
+                                                return qsTr("SPP device: %1").arg(page.reflectorClient.learnedSppDeviceName)
                                             if (page.reflectorClient.learnedHardwarePttKeyCode > 0)
                                                 return qsTr("Learned key code: %1").arg(page.reflectorClient.learnedHardwarePttKeyCode)
                                             return qsTr("No learned key saved.")
