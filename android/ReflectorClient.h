@@ -69,10 +69,12 @@ class ReflectorClient : public QObject
                NOTIFY hardwarePttLearningActiveChanged)
     Q_PROPERTY(int hardwarePttLearningResult READ hardwarePttLearningResult
                NOTIFY hardwarePttLearningResultChanged)
+#ifndef LATRY_SERVICE_BUILD
     Q_PROPERTY(QString learnedSppDeviceName READ learnedSppDeviceName
                NOTIFY hardwarePttSettingsChanged)
     Q_PROPERTY(QString learnedSppDeviceAddress READ learnedSppDeviceAddress
                NOTIFY hardwarePttSettingsChanged)
+#endif
     Q_PROPERTY(bool txTimeoutWarning READ txTimeoutWarning NOTIFY txTimeoutWarningChanged)
     Q_PROPERTY(qreal rxMeterLevel READ rxMeterLevel NOTIFY rxMeterLevelChanged)
     Q_PROPERTY(qreal rxMeterPeakLevel READ rxMeterPeakLevel NOTIFY rxMeterPeakLevelChanged)
@@ -121,8 +123,10 @@ public:
     int pttHangTimeMs() const { return m_pttHangTimeMs; }
     bool hardwarePttEnabled() const { return m_hardwarePttEnabled; }
     int learnedHardwarePttKeyCode() const { return m_learnedHardwarePttKeyCode; }
-    QString learnedSppDeviceName() const { return m_learnedSppDeviceName; }
-    QString learnedSppDeviceAddress() const { return m_learnedSppDeviceAddress; }
+    #ifndef LATRY_SERVICE_BUILD
+        QString learnedSppDeviceName() const { return m_learnedSppDeviceName; }
+        QString learnedSppDeviceAddress() const { return m_learnedSppDeviceAddress; }
+    #endif
     bool hardwarePttLearningActive() const { return m_hardwarePttLearningActive; }
     int hardwarePttLearningResult() const { return m_hardwarePttLearningResult; }
     bool txTimeoutWarning() const { return m_txTimeoutWarning; }
@@ -164,7 +168,9 @@ public:
     Q_INVOKABLE void setHardwarePttEnabled(bool enabled);
     Q_INVOKABLE void setLearnedHardwarePttKeyCode(int keyCode);
     Q_INVOKABLE void clearLearnedHardwarePttKeyCode();
-    Q_INVOKABLE void clearLearnedSppDevice();
+    #ifndef LATRY_SERVICE_BUILD
+        Q_INVOKABLE void clearLearnedSppDevice();
+    #endif
     Q_INVOKABLE void startHardwarePttLearning();
     Q_INVOKABLE void cancelHardwarePttLearning();
     Q_INVOKABLE void setLiveTranscriptionEnabled(bool enabled);

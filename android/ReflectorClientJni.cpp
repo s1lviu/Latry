@@ -414,6 +414,7 @@ void ReflectorClient::notifyHardwarePttLearningResult(int result, int keyCode)
                 if (result == 1 && keyCode > 0) { // RESULT_KEY_CAPTURED
                     client->m_learnedHardwarePttKeyCode = keyCode;
                     emit client->hardwarePttSettingsChanged();
+#ifndef LATRY_SERVICE_BUILD
                 } else if (result == 4) { // RESULT_SPP_DEVICE_CAPTURED
 #if defined(Q_OS_ANDROID)
                     QJniObject activity = QNativeInterface::QAndroidApplication::context();
@@ -433,7 +434,7 @@ void ReflectorClient::notifyHardwarePttLearningResult(int result, int keyCode)
                     emit client->hardwarePttSettingsChanged();
                     client->startSppPttBridgeIfNeeded();
                 }
-
+#endif
                 emit client->hardwarePttLearningActiveChanged();
                 emit client->hardwarePttLearningResultChanged();
             },

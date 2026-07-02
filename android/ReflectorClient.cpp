@@ -1930,6 +1930,7 @@ void ReflectorClient::onAudioSetupFinished()
 #endif
 }
 
+#ifndef LATRY_SERVICE_BUILD
 void ReflectorClient::clearLearnedSppDevice()
 {
 #if defined(Q_OS_ANDROID)
@@ -1967,3 +1968,4 @@ void ReflectorClient::startSppPttBridgeIfNeeded()
     m_sppPttBridge->selectDevice(m_learnedSppDeviceName, m_learnedSppDeviceAddress);
     m_sppPttBridge->setEnabled(true);
 }
+#endif // LATRY_SERVICE_BUILD
