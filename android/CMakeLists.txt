@@ -153,6 +153,7 @@ if(ANDROID)
         Qt6::Core
         Qt6::Network
         Qt6::Multimedia
+        Qt6::Bluetooth
         opus
     )
     if(TARGET Qt6::AndroidExtras)
@@ -171,6 +172,7 @@ if(ANDROID)
     endif()
     target_compile_definitions(latryservice PRIVATE
         LATRY_VERSION_NAME="${LATRY_VERSION_NAME}"
+        LATRY_SERVICE_BUILD
     )
 
     set_property(TARGET applatry APPEND PROPERTY

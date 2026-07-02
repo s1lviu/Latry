@@ -27,7 +27,9 @@
 #include <QVariantList>
 #include <QElapsedTimer>
 #include "AudioEngine.h"
+#ifndef LATRY_SERVICE_BUILD
 #include "SppPttBridge.h"
+#endif
 #include <memory>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -487,7 +489,9 @@ private:
     int m_hardwarePttLearningResult = 0;
     QString m_learnedSppDeviceName;
     QString m_learnedSppDeviceAddress;
-    std::unique_ptr<SppPttBridge> m_sppPttBridge;
+    #ifndef LATRY_SERVICE_BUILD
+        std::unique_ptr<SppPttBridge> m_sppPttBridge;
+    #endif
     qreal m_rxMeterLevel = 0.0;
     qreal m_rxMeterPeakLevel = 0.0;
     qreal m_txMeterLevel = 0.0;
