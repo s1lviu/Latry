@@ -1,6 +1,17 @@
 <!DOCTYPE RCC><RCC version="1.0">
 <qresource prefix="/">
     <file>Main.qml</file>
+    <file>UiMetrics.qml</file>
     <file>BatteryOptimizationDialog.qml</file>
+    <file>AudioLevelMeter.qml</file>
+    <file>HomePage.qml</file>
+    <file>SettingsPage.qml</file>
+    <file>ProfileCard.qml</file>
+    <file>ProfileEditorPage.qml</file>
+    <file>ProfileUtils.js</file>
+    <file>QuickSwitchTile.qml</file>
+    <file>QuickProfileDialog.qml</file>
+    <file>QuickTalkgroupDialog.qml</file>
+    <file>assets/power_settings_new.svg</file>
 </qresource>
 </RCC>

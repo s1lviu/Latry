@@ -3,9 +3,12 @@ package yo6say.latry;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.ForegroundServiceStartNotAllowedException;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.pm.ServiceInfo;
 import android.graphics.Color;
 import android.media.AudioManager;
 import android.net.wifi.WifiManager;
@@ -16,12 +19,24 @@ import android.util.Log;
 import android.app.ActivityManager;
 import android.os.Handler;
 import android.os.Looper;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
 import androidx.core.app.NotificationCompat;
-import androidx.core.app.NotificationManagerCompat;
-import android.app.Service;
+import androidx.core.content.ContextCompat;
+import org.qtproject.qt.android.QtServiceBase;
 
-public class VoipBackgroundService extends Service {
+public class VoipBackgroundService extends QtServiceBase {
     private static final String TAG = "VoipBackgroundService";
+    static final String ACTION_START_VOIP = "START_VOIP";
+    private static final String ACTION_CONTROL_EVENT = "CONTROL_EVENT";
+    public static final String ACTION_PTT_PRESSED = "yo6say.latry.action.PTT_PRESSED";
+    public static final String ACTION_PTT_RELEASED = "yo6say.latry.action.PTT_RELEASED";
+    private static final String ACTION_STOP_VOIP = "STOP_VOIP";
+    private static final String EXTRA_CONTROL_EVENT = "control_event";
+    static final String EXTRA_MONITOR_CONNECTION = "monitor_connection";
     private static final int NOTIFICATION_ID = 1001;
     private static final String CHANNEL_ID = "voip_service_channel";
     private static final String CHANNEL_NAME = "VoIP Background Service";
@@ -31,14 +46,27 @@ public class VoipBackgroundService extends Service {
     private static VoipBackgroundService instance = null;
     
     // Connection state
-    private String serverHost = "";
-    private int serverPort = 0;
-    private int talkGroup = 0;
-    private String callsign = "";
-    private String connectionStatus = "Connecting...";
-    private String currentTalker = "";
-    private boolean isConnected = false;
-    private boolean isMuted = false;
+    private volatile String serverHost = "";
+    private volatile int serverPort = 0;
+    private volatile int talkGroup = 0;
+    private volatile String callsign = "";
+    private volatile String connectionStatus = "Connecting...";
+    private volatile String currentTalker = "";
+    private volatile boolean isConnected = false;
+    private volatile boolean isReceiving = false;
+    private volatile boolean isTransmitting = false;
+    private volatile boolean isMuted = false;
+    private volatile boolean foregroundStarted = false;
+    private volatile boolean connectionMonitoringEnabled = false;
+    private volatile int connectionStatusUpdateGeneration = 0;
+    private volatile int receiveEventGeneration = 0;
+    private volatile String lastReceiveEventTalker = "";
+    private volatile int lastDefaultNetworkGeneration = 0;
+    private volatile int lastDefaultNetworkTransport = NetworkHandoverMonitor.TRANSPORT_UNKNOWN;
+    private LatryMediaSessionManager mediaSessionManager;
+    private NetworkHandoverMonitor networkHandoverMonitor;
+    private boolean networkMonitorActive = false;
+    private PTTButtonBroadcastReceiver backgroundMeigPttReceiver;
     
     // System locks
     private PowerManager.WakeLock wakeLock;
@@ -48,12 +76,35 @@ public class VoipBackgroundService extends Service {
     // Keep-alive mechanism
     private Handler keepAliveHandler;
     private Runnable keepAliveRunnable;
+    private static boolean nativeBridgeAvailable = true;
+    private boolean qtServiceAttached = false;
     
     @Override
     public void onCreate() {
-        super.onCreate();
-        Log.d(TAG, "VoIP Background Service created");
+        Log.d(TAG, "VoIP Background Service bootstrap create");
+        LatrySentry.addBreadcrumb("service.lifecycle", "service_created", io.sentry.SentryLevel.INFO);
         instance = this;
+        createNotificationChannel();
+        if (!foregroundStarted) {
+            startForegroundWithType(NOTIFICATION_ID, createNotification());
+            foregroundStarted = true;
+            Log.d(TAG, "Foreground bootstrap notification started before Qt initialization");
+        }
+
+        if (isQtRuntimeStarted() || isQtLoaderConflict()) {
+            Log.d(TAG, "Qt runtime already active in app process - using controller-only service mode");
+        } else {
+            try {
+                super.onCreate();
+                qtServiceAttached = true;
+                Log.d(TAG, "Qt service lifecycle attached for headless service mode");
+            } catch (ClassCastException e) {
+                Log.w(TAG, "QtLoader singleton conflict (Activity loader occupied m_instance during "
+                        + "deferred initialization window) - falling back to controller-only mode", e);
+            }
+        }
+
+        Log.d(TAG, "VoIP Background Service created");
         
         // Initialize system managers
         PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
@@ -70,80 +121,223 @@ public class VoipBackgroundService extends Service {
         
         WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         if (wm != null) {
-            wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "Latry:VoipService");
+            wifiLock = createWifiLockCompat(wm, "Latry:VoipService");
             wifiLock.setReferenceCounted(false);
         }
         
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         
-        // Create notification channel for Android O+
-        createNotificationChannel();
+        mediaSessionManager = new LatryMediaSessionManager(
+            getApplicationContext(),
+            new LatryMediaSessionManager.ControlEventListener() {
+                @Override
+                public void onControlEvent(int eventType) {
+                    handleAndroidControlEvent(eventType);
+                }
+            });
+        mediaSessionManager.initialize();
+
+        networkHandoverMonitor = new NetworkHandoverMonitor(
+                getApplicationContext(),
+                new NetworkHandoverMonitor.Listener() {
+                    @Override
+                    public void onNetworkSnapshotChanged(NetworkHandoverMonitor.NetworkSnapshot snapshot) {
+                        handleNetworkSnapshot(snapshot);
+                    }
+                });
+
+        registerBackgroundMeigPttReceiver();
     }
     
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         Log.d(TAG, "Qt VoIP Service onStartCommand");
-        
-        if (intent != null) {
-            String action = intent.getAction();
-            
-            if ("START_VOIP".equals(action)) {
-                // Extract connection parameters
-                serverHost = intent.getStringExtra("host");
-                serverPort = intent.getIntExtra("port", 0);
-                talkGroup = intent.getIntExtra("talkgroup", 0);
-                callsign = intent.getStringExtra("callsign");
-                connectionStatus = "Connecting to " + serverHost + ":" + serverPort;
-                
-                startVoipService();
-                
-            } else if ("STOP_VOIP".equals(action)) {
-                stopVoipService();
-                return START_NOT_STICKY;
-                
-            }
+        Map<String, Object> startData = new HashMap<>();
+        startData.put("has_intent", intent != null);
+        startData.put("start_id", startId);
+        startData.put("flags", flags);
+        startData.put("action", intent != null && intent.getAction() != null ? intent.getAction() : "null");
+        LatrySentry.addBreadcrumb("service.lifecycle", "service_start_command",
+                io.sentry.SentryLevel.INFO, startData);
+
+        if (intent == null) {
+            Log.d(TAG, "Null start intent received — stopping service (auto-restart is disabled)");
+            stopSelf();
+            return START_NOT_STICKY;
         }
-        
-        return START_STICKY; // Restart if killed by system
+
+        String action = intent.getAction();
+
+        if (ACTION_START_VOIP.equals(action)) {
+            serverHost = valueOrEmpty(intent.getStringExtra("host"));
+            serverPort = intent.getIntExtra("port", 0);
+            talkGroup = intent.getIntExtra("talkgroup", 0);
+            callsign = valueOrEmpty(intent.getStringExtra("callsign"));
+            connectionMonitoringEnabled = intent.getBooleanExtra(EXTRA_MONITOR_CONNECTION, false);
+            connectionStatus = connectionMonitoringEnabled
+                    ? buildConnectingStatus(serverHost, serverPort)
+                    : buildDisconnectedStatus();
+
+            startVoipService();
+            return START_REDELIVER_INTENT;
+        }
+
+        if (ACTION_CONTROL_EVENT.equals(action)) {
+            ensureForegroundControllerForExternalControl();
+            handleAndroidControlEvent(intent.getIntExtra(EXTRA_CONTROL_EVENT, 0));
+            return START_STICKY;
+        }
+
+        if (ACTION_PTT_PRESSED.equals(action) || ACTION_PTT_RELEASED.equals(action)) {
+            ensureForegroundControllerForExternalControl();
+            handleAndroidControlEvent(ACTION_PTT_PRESSED.equals(action)
+                    ? LatryMediaSessionManager.EVENT_PTT_PRESS
+                    : LatryMediaSessionManager.EVENT_PTT_RELEASE);
+            return START_STICKY;
+        }
+
+        if (ACTION_STOP_VOIP.equals(action)) {
+            stopVoipServiceInternal();
+            return START_NOT_STICKY;
+        }
+
+        Log.w(TAG, "Ignoring unknown service action: " + action);
+        return START_NOT_STICKY;
+    }
+
+    private String valueOrEmpty(String value) {
+        return value != null ? value : "";
+    }
+
+    private void applySavedReconnectProfileIfNeeded() {
+        if (!serverHost.isEmpty() && serverPort > 0) {
+            return;
+        }
+
+        if (!ConnectionProfileStore.hasSavedConnectionProfile(getApplicationContext())) {
+            return;
+        }
+
+        serverHost = valueOrEmpty(ConnectionProfileStore.getSavedHost(getApplicationContext()));
+        serverPort = ConnectionProfileStore.getSavedPort(getApplicationContext());
+        callsign = valueOrEmpty(ConnectionProfileStore.getSavedCallsign(getApplicationContext()));
+        talkGroup = ConnectionProfileStore.getSavedTalkgroup(getApplicationContext());
+    }
+
+    private String buildConnectingStatus(String host, int port) {
+        return VoipServiceStatusFormatter.buildConnectingStatus(host, port);
+    }
+
+    private String buildDisconnectedStatus() {
+        return VoipServiceStatusFormatter.buildDisconnectedStatus(serverHost, serverPort);
+    }
+
+    private void configureConnectionMonitoring(boolean enabled) {
+        connectionMonitoringEnabled = enabled;
+        if (enabled) {
+            startNetworkMonitor();
+            startKeepAlive();
+        } else {
+            stopNetworkMonitor();
+            stopKeepAlive();
+        }
+    }
+
+    private void startNetworkMonitor() {
+        if (networkHandoverMonitor == null) {
+            networkMonitorActive = false;
+            return;
+        }
+        networkMonitorActive = networkHandoverMonitor.start();
+        Log.d(TAG, "Default network monitor active=" + networkMonitorActive);
+    }
+
+    private void stopNetworkMonitor() {
+        if (networkHandoverMonitor != null) {
+            networkHandoverMonitor.stop();
+        }
+        networkMonitorActive = false;
+    }
+
+    private void ensureForegroundControllerForExternalControl() {
+        if (isServiceRunning) {
+            return;
+        }
+
+        applySavedReconnectProfileIfNeeded();
+        connectionStatus = buildDisconnectedStatus();
+        startVoipService();
     }
     
     private void startVoipService() {
         Log.d(TAG, "Starting Qt VoIP foreground service");
+        LatrySentry.addBreadcrumb("service.lifecycle", "service_foreground_started",
+                io.sentry.SentryLevel.INFO);
         isServiceRunning = true;
+        isConnected = false;
+        isReceiving = false;
+        isTransmitting = false;
+        currentTalker = "";
+
+        if (mediaSessionManager != null) {
+            mediaSessionManager.updateConnectionStatus(false, callsign, talkGroup);
+            mediaSessionManager.updateCurrentTalker("");
+            mediaSessionManager.updateRXStatus(false, "");
+            mediaSessionManager.updateTXStatus(false);
+        }
         
         // Check battery optimization status
         checkBatteryOptimization();
         
         // Acquire system locks
         acquireSystemLocks();
-        
-        // Start foreground with initial notification
+
         Notification notification = createNotification();
-        startForeground(NOTIFICATION_ID, notification);
-        
-        // Start keep-alive mechanism
-        startKeepAlive();
+        if (!foregroundStarted) {
+            startForegroundWithType(NOTIFICATION_ID, notification);
+            foregroundStarted = true;
+        } else {
+            publishNotification(notification);
+        }
+
+        configureConnectionMonitoring(connectionMonitoringEnabled);
+        syncForegroundState();
         
         // Notify Qt application that service is ready
-        notifyServiceStarted();
+        dispatchServiceStartedCallback();
     }
     
-    private void stopVoipService() {
+    private void stopVoipServiceInternal() {
         Log.d(TAG, "Stopping Qt VoIP service");
+        LatrySentry.addBreadcrumb("service.lifecycle", "service_stop_requested",
+                io.sentry.SentryLevel.INFO);
         isServiceRunning = false;
         isConnected = false;
+        isReceiving = false;
+        isTransmitting = false;
+        currentTalker = "";
+
+        if (mediaSessionManager != null) {
+            mediaSessionManager.updateCurrentTalker("");
+            mediaSessionManager.updateRXStatus(false, "");
+            mediaSessionManager.updateTXStatus(false);
+            mediaSessionManager.updateConnectionStatus(false, callsign, talkGroup);
+        }
         
         // Stop keep-alive mechanism
-        stopKeepAlive();
+        configureConnectionMonitoring(false);
         
         // Release system locks
         releaseSystemLocks();
         
         // Notify Qt application that service is stopping
-        notifyServiceStopped();
+        dispatchServiceStoppedCallback();
         
         // Stop foreground service
-        stopForeground(true);
+        if (foregroundStarted) {
+            stopForegroundCompat();
+            foregroundStarted = false;
+        }
         stopSelf();
     }
     
@@ -160,14 +354,26 @@ public class VoipBackgroundService extends Service {
     }
     
     private void startKeepAlive() {
+        if (!connectionMonitoringEnabled) {
+            Log.d(TAG, "Skipping keep-alive start because connection monitoring is disabled");
+            return;
+        }
+
         if (keepAliveHandler == null) {
             keepAliveHandler = new Handler(Looper.getMainLooper());
         }
+
+        stopKeepAlive();
         
         keepAliveRunnable = new Runnable() {
             @Override
             public void run() {
                 if (isServiceRunning) {
+                    if (!connectionMonitoringEnabled) {
+                        Log.d(TAG, "Keep-alive tick skipped because connection monitoring is disabled");
+                        return;
+                    }
+
                     // Renew wake lock if needed
                     if (wakeLock != null && !wakeLock.isHeld()) {
                         wakeLock.acquire(10*60*1000L); // 10 minutes timeout
@@ -178,15 +384,12 @@ public class VoipBackgroundService extends Service {
                     keepAliveHandler.postDelayed(new Runnable() {
                         @Override
                         public void run() {
-                            notifyCheckConnection();
+                            dispatchCheckConnectionCallback();
                         }
                     }, 100); // Small delay to ensure Qt is ready
                     
-                    // Update notification to show we're still active
-                    updateNotification();
-                    
-                    // Log keep-alive to show service is active
-                    Log.d(TAG, "Qt VoIP service keep-alive - connection check triggered");
+                    // Reconcile foreground state on each keep-alive tick.
+                    syncForegroundState();
                     
                     // Schedule next keep-alive in 15 seconds for very aggressive monitoring during freeze cycles
                     keepAliveHandler.postDelayed(this, 15*1000L);
@@ -246,13 +449,56 @@ public class VoipBackgroundService extends Service {
             Log.d(TAG, "WiFi lock released");
         }
     }
+
+    private void startForegroundWithType(int notificationId, Notification notification) {
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(notificationId, notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+        } else {
+            startForeground(notificationId, notification);
+        }
+    }
+
+    private void upgradeForegroundForMicrophone() {
+        if (Build.VERSION.SDK_INT >= 34 && foregroundStarted) {
+            startForeground(NOTIFICATION_ID, createNotification(),
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                            | ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+            Log.d(TAG, "Foreground service upgraded to include MICROPHONE type for PTT");
+        }
+    }
+
+    private void stopForegroundCompat() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE);
+        } else {
+            stopForegroundLegacy();
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void stopForegroundLegacy() {
+        stopForeground(true);
+    }
+
+    private WifiManager.WifiLock createWifiLockCompat(WifiManager wifiManager, String tag) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            return wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, tag);
+        }
+        return createLegacyWifiLock(wifiManager, tag);
+    }
+
+    @SuppressWarnings("deprecation")
+    private WifiManager.WifiLock createLegacyWifiLock(WifiManager wifiManager, String tag) {
+        return wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, tag);
+    }
     
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
                 CHANNEL_ID,
                 CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_DEFAULT
+                NotificationManager.IMPORTANCE_LOW
             );
             channel.setDescription("VoIP background service notifications - keeps connection alive");
             channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
@@ -286,7 +532,7 @@ public class VoipBackgroundService extends Service {
         
         // Build Qt-compliant notification for VoIP
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Latry VoIP Active")
+            .setContentTitle(buildNotificationTitle())
             .setContentText(buildNotificationText())
             .setSmallIcon(notificationIcon)
             .setColor(statusColor)
@@ -298,7 +544,8 @@ public class VoipBackgroundService extends Service {
             .setAutoCancel(false)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE);
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .setOnlyAlertOnce(true);
         
         // No action buttons - keep notification simple
         
@@ -311,75 +558,418 @@ public class VoipBackgroundService extends Service {
         return builder.build();
     }
     
+    private String buildNotificationTitle() {
+        return VoipServiceStatusFormatter.buildNotificationTitle(
+            isConnected,
+            isReceiving,
+            isTransmitting);
+    }
+
     private String buildNotificationText() {
-        return isConnected ? "Connected" : "Disconnected";
+        return VoipServiceStatusFormatter.buildNotificationText(
+            isConnected,
+            isReceiving,
+            isTransmitting,
+            talkGroup,
+            currentTalker,
+            connectionStatus,
+            serverHost,
+            serverPort);
     }
     
     private String buildDetailedNotificationText() {
-        return isConnected ? "Connected" : "Disconnected";
+        return VoipServiceStatusFormatter.buildDetailedNotificationText(
+            connectionStatus,
+            callsign,
+            talkGroup,
+            isReceiving,
+            isTransmitting,
+            currentTalker);
     }
     
-    // Qt-compliant static service startup method (per Qt documentation)
-    public static void startQtVoipService(Context context) {
-        Intent intent = new Intent(context, VoipBackgroundService.class);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(intent);
-        } else {
-            context.startService(intent);
-        }
-        Log.d(TAG, "Qt VoIP service started via Qt-compliant static method");
-    }
-    
-    // Backward compatibility method with parameters
     public static void startVoipService(Context context, String host, int port, String callsign, int talkgroup) {
+        startVoipService(context, host, port, callsign, talkgroup, true);
+    }
+
+    public static void startVoipService(Context context, String host, int port, String callsign,
+                                        int talkgroup, boolean monitorConnection) {
         Intent intent = new Intent(context, VoipBackgroundService.class);
-        intent.setAction("START_VOIP");
+        intent.setAction(ACTION_START_VOIP);
         intent.putExtra("host", host);
         intent.putExtra("port", port);
         intent.putExtra("callsign", callsign);
         intent.putExtra("talkgroup", talkgroup);
+        intent.putExtra(EXTRA_MONITOR_CONNECTION, monitorConnection);
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(intent);
         } else {
             context.startService(intent);
         }
-        Log.d(TAG, "VoIP service start requested with parameters");
+        Map<String, Object> requestData = new HashMap<>();
+        requestData.put("monitor_connection", monitorConnection);
+        requestData.put("sdk_int", Build.VERSION.SDK_INT);
+        LatrySentry.addBreadcrumb("service.lifecycle", "service_start_requested",
+                io.sentry.SentryLevel.INFO, requestData);
+        Log.d(TAG, "VoIP service start requested with parameters, monitorConnection=" + monitorConnection);
+    }
+
+    public static void ensureControllerService(Context context) {
+        if (instance != null && isServiceRunning) {
+            return;
+        }
+
+        if (!ConnectionProfileStore.hasSavedConnectionProfile(context)) {
+            Log.d(TAG, "Skipping controller service auto-start because no saved reconnect profile exists");
+            return;
+        }
+
+        String host = "";
+        int port = 0;
+        String callsign = "";
+        int talkgroup = 0;
+
+        host = ConnectionProfileStore.getSavedHost(context);
+        port = ConnectionProfileStore.getSavedPort(context);
+        callsign = ConnectionProfileStore.getSavedCallsign(context);
+        talkgroup = ConnectionProfileStore.getSavedTalkgroup(context);
+
+        startVoipService(context, host, port, callsign, talkgroup, false);
+    }
+
+    public static void dispatchControlEvent(Context context, int eventType) {
+        Intent intent = new Intent(context, VoipBackgroundService.class);
+        intent.setAction(ACTION_CONTROL_EVENT);
+        intent.putExtra(EXTRA_CONTROL_EVENT, eventType);
+
+        startServiceSafely(context, intent);
+        Log.d(TAG, "Control event dispatched to service: " + eventType);
+    }
+
+    public static void dispatchPTTAction(Context context, boolean pressed) {
+        Intent intent = new Intent(context, VoipBackgroundService.class);
+        intent.setAction(pressed ? ACTION_PTT_PRESSED : ACTION_PTT_RELEASED);
+
+        startServiceSafely(context, intent);
+        Log.d(TAG, "PTT action dispatched to service: " + (pressed ? "pressed" : "released"));
     }
     
+    private static void startServiceSafely(Context context, Intent intent) {
+        if (isServiceRunning) {
+            // Service is already running as foreground — just deliver the intent.
+            context.startService(intent);
+            return;
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                context.startForegroundService(intent);
+            } catch (ForegroundServiceStartNotAllowedException e) {
+                Log.w(TAG, "Cannot start foreground service from background: " + e.getMessage());
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(intent);
+        } else {
+            context.startService(intent);
+        }
+    }
+
     public static void stopVoipService(Context context) {
-        Intent intent = new Intent(context, VoipBackgroundService.class);
-        intent.setAction("STOP_VOIP");
-        context.startService(intent);
+        final VoipBackgroundService serviceToStop = instance;
+        if (serviceToStop == null) {
+            boolean stopRequested = context.stopService(new Intent(context, VoipBackgroundService.class));
+            Log.d(TAG, "VoIP service stop requested without active instance, stopService()=" + stopRequested);
+            return;
+        }
+
+        Handler handler = new Handler(Looper.getMainLooper());
+        handler.post(() -> {
+            if (serviceToStop == instance) {
+                serviceToStop.stopVoipServiceInternal();
+            } else {
+                Log.d(TAG, "Ignoring stale VoIP service stop request for replaced instance");
+            }
+        });
         Log.d(TAG, "VoIP service stop requested");
     }
     
     public static boolean isRunning() {
         return isServiceRunning;
     }
+
+    public static boolean shouldClaimOrderedPttBroadcasts() {
+        final VoipBackgroundService activeInstance = instance;
+        return activeInstance != null && activeInstance.isConnected;
+    }
+
+    boolean isForegroundStartedForTesting() {
+        return foregroundStarted;
+    }
+
+    boolean isConnectedForTesting() {
+        return isConnected;
+    }
+
+    boolean isReceivingForTesting() {
+        return isReceiving;
+    }
+
+    boolean isTransmittingForTesting() {
+        return isTransmitting;
+    }
+
+    String getCurrentTalkerForTesting() {
+        return currentTalker;
+    }
+
+    int getConnectionStatusUpdateGenerationForTesting() {
+        return connectionStatusUpdateGeneration;
+    }
+
+    int getReceiveEventGenerationForTesting() {
+        return receiveEventGeneration;
+    }
+
+    String getLastReceiveEventTalkerForTesting() {
+        return lastReceiveEventTalker;
+    }
+
+    int getLastDefaultNetworkGenerationForTesting() {
+        return lastDefaultNetworkGeneration;
+    }
+
+    int getLastDefaultNetworkTransportForTesting() {
+        return lastDefaultNetworkTransport;
+    }
+
+    boolean isQtServiceAttachedForTesting() {
+        return qtServiceAttached;
+    }
+
+    boolean isConnectionMonitoringEnabledForTesting() {
+        return connectionMonitoringEnabled;
+    }
+
+    boolean isNetworkMonitorActiveForTesting() {
+        return networkMonitorActive;
+    }
+
+    String getConnectionStatusForTesting() {
+        return connectionStatus;
+    }
+
+    String getServerHostForTesting() {
+        return serverHost;
+    }
+
+    int getServerPortForTesting() {
+        return serverPort;
+    }
+
+    int getTalkGroupForTesting() {
+        return talkGroup;
+    }
+
+    boolean hasMediaSessionForTesting() {
+        return mediaSessionManager != null;
+    }
+
+    public void setConnectionMonitoringEnabled(boolean enabled) {
+        configureConnectionMonitoring(enabled);
+        if (!enabled && !isConnected) {
+            connectionStatus = buildDisconnectedStatus();
+            syncForegroundState();
+        }
+        Log.d(TAG, "Qt service - Connection monitoring enabled: " + enabled);
+    }
     
     // Qt-compliant update methods
     public void updateConnectionStatus(String status, boolean connected) {
+        String previousStatus = this.connectionStatus;
+        boolean previousConnected = this.isConnected;
+        boolean previousReceiving = this.isReceiving;
+        boolean previousTransmitting = this.isTransmitting;
+        String previousTalker = this.currentTalker;
+
         this.connectionStatus = status;
         this.isConnected = connected;
-        updateNotification();
-        Log.d(TAG, "Qt service - Connection status updated: " + status);
+        if (!connected) {
+            this.isReceiving = false;
+            this.isTransmitting = false;
+            this.currentTalker = "";
+            if (!connectionMonitoringEnabled && (status == null || status.isEmpty() || "Disconnected".equals(status))) {
+                this.connectionStatus = buildDisconnectedStatus();
+            }
+        }
+        if (mediaSessionManager != null) {
+            mediaSessionManager.updateConnectionStatus(connected, callsign, talkGroup);
+        }
+        syncForegroundState();
+        if (!Objects.equals(previousStatus, this.connectionStatus)
+                || previousConnected != this.isConnected
+                || previousReceiving != this.isReceiving
+                || previousTransmitting != this.isTransmitting
+                || !Objects.equals(previousTalker, this.currentTalker)) {
+            connectionStatusUpdateGeneration++;
+            Log.d(TAG, "Qt service - Connection status updated: " + this.connectionStatus);
+        }
     }
     
     public void updateCurrentTalker(String talker) {
-        this.currentTalker = talker;
-        updateNotification();
-        Log.d(TAG, "Qt service - Current talker updated: " + talker);
+        String normalizedTalker = talker != null ? talker : "";
+        String previousTalker = this.currentTalker;
+        this.currentTalker = normalizedTalker;
+        if (mediaSessionManager != null) {
+            mediaSessionManager.updateCurrentTalker(normalizedTalker);
+        }
+        syncForegroundState();
+        if (!Objects.equals(previousTalker, this.currentTalker)) {
+            Log.d(TAG, "Qt service - Current talker updated: " + this.currentTalker);
+        }
+    }
+
+    public void updateTalkgroup(int talkgroup) {
+        int previousTalkgroup = this.talkGroup;
+        this.talkGroup = talkgroup;
+        if (mediaSessionManager != null) {
+            mediaSessionManager.updateTalkgroup(talkgroup);
+        }
+        syncForegroundState();
+        if (previousTalkgroup != this.talkGroup) {
+            Log.d(TAG, "Qt service - Talkgroup updated: " + this.talkGroup);
+        }
+    }
+
+    public void updateReceiveState(boolean receiving, String talker) {
+        boolean previousReceiving = this.isReceiving;
+        String previousTalker = this.currentTalker;
+        this.isReceiving = receiving;
+        if (!receiving && (talker == null || talker.isEmpty())) {
+            this.currentTalker = "";
+        } else if (talker != null && !talker.isEmpty()) {
+            this.currentTalker = talker;
+        }
+        if (mediaSessionManager != null) {
+            mediaSessionManager.updateRXStatus(receiving, this.currentTalker);
+        }
+        syncForegroundState();
+        boolean changed = previousReceiving != this.isReceiving
+                || !Objects.equals(previousTalker, this.currentTalker);
+        if (changed && this.isReceiving && !this.currentTalker.isEmpty()) {
+            lastReceiveEventTalker = this.currentTalker;
+            receiveEventGeneration++;
+        }
+        if (changed) {
+            Log.d(TAG, "Qt service - RX state updated: " + this.isReceiving + " talker=" + this.currentTalker);
+        }
+    }
+
+    public void updateTransmitState(boolean transmitting) {
+        boolean previousTransmitting = this.isTransmitting;
+        boolean previousReceiving = this.isReceiving;
+        this.isTransmitting = transmitting;
+        if (transmitting) {
+            this.isReceiving = false;
+            upgradeForegroundForMicrophone();
+        }
+        if (mediaSessionManager != null) {
+            mediaSessionManager.updateTXStatus(transmitting);
+        }
+        syncForegroundState();
+        if (previousTransmitting != this.isTransmitting || previousReceiving != this.isReceiving) {
+            Log.d(TAG, "Qt service - TX state updated: " + this.isTransmitting);
+        }
+    }
+
+    void dispatchNetworkStateForTesting(int generation,
+                                        int reason,
+                                        boolean hasDefaultNetwork,
+                                        boolean validated,
+                                        int transport,
+                                        boolean metered,
+                                        boolean captivePortal,
+                                        boolean routeChanged) {
+        dispatchNetworkStateChangedCallback(new NetworkHandoverMonitor.NetworkSnapshot(
+                generation,
+                reason,
+                hasDefaultNetwork,
+                validated,
+                transport,
+                metered,
+                captivePortal,
+                routeChanged,
+                hasDefaultNetwork ? generation : -1L,
+                ""));
     }
     
-    private void updateNotification() {
-        if (isServiceRunning) {
-            Notification notification = createNotification();
-            NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-            if (manager != null) {
-                manager.notify(NOTIFICATION_ID, notification);
-            }
+    private void syncForegroundState() {
+        if (!isServiceRunning) {
+            return;
         }
+
+        if (VoipServiceLifecyclePolicy.shouldRemainForeground(
+                isConnected,
+                isReceiving,
+                isTransmitting,
+                LatryActivity.isActivityVisible())) {
+            Notification notification = createNotification();
+            if (!foregroundStarted) {
+                startForegroundWithType(NOTIFICATION_ID, notification);
+                foregroundStarted = true;
+            } else {
+                publishNotification(notification);
+            }
+            return;
+        }
+
+        if (foregroundStarted) {
+            stopForegroundCompat();
+            foregroundStarted = false;
+            cancelActiveNotification();
+        }
+    }
+
+    private void publishNotification(Notification notification) {
+        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (manager != null) {
+            manager.notify(NOTIFICATION_ID, notification);
+        }
+    }
+
+    private void cancelActiveNotification() {
+        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (manager != null) {
+            manager.cancel(NOTIFICATION_ID);
+        }
+    }
+
+    private void registerBackgroundMeigPttReceiver() {
+        if (backgroundMeigPttReceiver != null) {
+            return;
+        }
+
+        backgroundMeigPttReceiver = new PTTButtonBroadcastReceiver();
+        IntentFilter filter = new IntentFilter(PTTButtonBroadcastReceiver.ACTION_MEIG_KEY_EVENT);
+        filter.setPriority(999);
+        ContextCompat.registerReceiver(
+                this,
+                backgroundMeigPttReceiver,
+                filter,
+                ContextCompat.RECEIVER_EXPORTED);
+        Log.d(TAG, "Background Meig PTT receiver registered");
+    }
+
+    private void unregisterBackgroundMeigPttReceiver() {
+        if (backgroundMeigPttReceiver == null) {
+            return;
+        }
+
+        try {
+            unregisterReceiver(backgroundMeigPttReceiver);
+        } catch (IllegalArgumentException e) {
+            Log.w(TAG, "Background Meig PTT receiver already unregistered", e);
+        }
+        backgroundMeigPttReceiver = null;
     }
     
     // Notification action handlers removed - keeping notification simple
@@ -393,19 +983,216 @@ public class VoipBackgroundService extends Service {
     @Override
     public void onDestroy() {
         Log.d(TAG, "Qt VoIP Background Service destroyed");
+        LatrySentry.addBreadcrumb("service.lifecycle", "service_destroyed",
+                io.sentry.SentryLevel.INFO);
+        unregisterBackgroundMeigPttReceiver();
+        stopKeepAlive();
+        stopNetworkMonitor();
+        if (foregroundStarted) {
+            stopForegroundCompat();
+            foregroundStarted = false;
+        }
         releaseSystemLocks();
+        if (mediaSessionManager != null) {
+            mediaSessionManager.release();
+            mediaSessionManager = null;
+        }
         instance = null;
         isServiceRunning = false;
-        super.onDestroy();
+        if (qtServiceAttached) {
+            super.onDestroy();
+        }
+    }
+
+    private void handleAndroidControlEvent(int eventType) {
+        Log.d(TAG, "Forwarding Android control event to Qt: " + eventType);
+        dispatchAndroidControlEventCallback(eventType);
     }
     
     // Static methods for Qt application integration
     public static VoipBackgroundService getInstance() {
         return instance;
     }
+
+    private void dispatchServiceStartedCallback() {
+        if (AndroidIntegrationTestHooks.isEnabled()) {
+            AndroidIntegrationTestHooks.recordServiceStarted();
+            return;
+        }
+        invokeNativeCallback("notifyServiceStarted", new NativeCallback() {
+            @Override
+            public void run() {
+                notifyServiceStarted();
+            }
+        });
+    }
+
+    private void dispatchServiceStoppedCallback() {
+        if (AndroidIntegrationTestHooks.isEnabled()) {
+            AndroidIntegrationTestHooks.recordServiceStopped();
+            return;
+        }
+        invokeNativeCallback("notifyServiceStopped", new NativeCallback() {
+            @Override
+            public void run() {
+                notifyServiceStopped();
+            }
+        });
+    }
+
+    private void dispatchCheckConnectionCallback() {
+        if (AndroidIntegrationTestHooks.isEnabled()) {
+            AndroidIntegrationTestHooks.recordCheckConnection();
+            return;
+        }
+        invokeNativeCallback("notifyCheckConnection", new NativeCallback() {
+            @Override
+            public void run() {
+                notifyCheckConnection();
+            }
+        });
+    }
+
+    private void dispatchAndroidControlEventCallback(int eventType) {
+        if (AndroidIntegrationTestHooks.isEnabled()) {
+            AndroidIntegrationTestHooks.recordControlEvent(eventType);
+            return;
+        }
+        final int callbackEventType = eventType;
+        invokeNativeCallback("notifyAndroidControlEvent", new NativeCallback() {
+            @Override
+            public void run() {
+                notifyAndroidControlEvent(callbackEventType);
+            }
+        });
+    }
+
+    private void handleNetworkSnapshot(NetworkHandoverMonitor.NetworkSnapshot snapshot) {
+        if (snapshot == null) {
+            return;
+        }
+
+        Log.d(TAG, "Default network snapshot: " + snapshot);
+        lastDefaultNetworkGeneration = snapshot.generation;
+        lastDefaultNetworkTransport = snapshot.transport;
+        dispatchNetworkStateChangedCallback(snapshot);
+    }
+
+    private void dispatchNetworkStateChangedCallback(NetworkHandoverMonitor.NetworkSnapshot snapshot) {
+        if (snapshot == null) {
+            return;
+        }
+
+        if (AndroidIntegrationTestHooks.isEnabled()) {
+            AndroidIntegrationTestHooks.recordNetworkStateChanged(
+                    snapshot.generation,
+                    snapshot.reason,
+                    snapshot.hasDefaultNetwork,
+                    snapshot.validated,
+                    snapshot.transport,
+                    snapshot.metered,
+                    snapshot.captivePortal,
+                    snapshot.routeChanged);
+            return;
+        }
+
+        final int generation = snapshot.generation;
+        final int reason = snapshot.reason;
+        final boolean hasDefaultNetwork = snapshot.hasDefaultNetwork;
+        final boolean validated = snapshot.validated;
+        final int transport = snapshot.transport;
+        final boolean metered = snapshot.metered;
+        final boolean captivePortal = snapshot.captivePortal;
+        final boolean routeChanged = snapshot.routeChanged;
+        invokeNativeCallback("notifyNetworkStateChanged", new NativeCallback() {
+            @Override
+            public void run() {
+                notifyNetworkStateChanged(generation, reason, hasDefaultNetwork, validated,
+                        transport, metered, captivePortal, routeChanged);
+            }
+        });
+    }
+
+    private void invokeNativeCallback(String callbackName, NativeCallback callback) {
+        try {
+            callback.run();
+            if (!nativeBridgeAvailable) {
+                nativeBridgeAvailable = true;
+                Log.i(TAG, "Native bridge restored for " + callbackName);
+            }
+        } catch (UnsatisfiedLinkError error) {
+            if (nativeBridgeAvailable) {
+                nativeBridgeAvailable = false;
+                Log.w(TAG, "Native bridge unavailable for " + callbackName
+                        + "; Java foreground controller will continue until Qt is ready");
+            }
+        }
+    }
+
+    private interface NativeCallback {
+        void run();
+    }
+
+    private boolean isQtRuntimeStarted() {
+        try {
+            Class<?> qtNativeClass = Class.forName("org.qtproject.qt.android.QtNative");
+            Method getStateDetails = qtNativeClass.getDeclaredMethod("getStateDetails");
+            getStateDetails.setAccessible(true);
+            Object stateDetails = getStateDetails.invoke(null);
+            if (stateDetails == null) {
+                return false;
+            }
+
+            Field isStartedField = stateDetails.getClass().getDeclaredField("isStarted");
+            isStartedField.setAccessible(true);
+            return isStartedField.getBoolean(stateDetails);
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to inspect Qt runtime state; defaulting to Qt service attach", e);
+            return false;
+        }
+    }
+
+    /**
+     * Detects whether QtLoader.m_instance has already been claimed by the Activity's
+     * QtActivityLoader.  This covers the timing gap where the Activity has created
+     * its loader (setting m_instance) but QtNative.startApplication() has not yet
+     * run (deferred to ViewTreeObserver.OnGlobalLayoutListener), so isStarted is
+     * still false.  Calling super.onCreate() in this state triggers a ClassCastException
+     * because QtServiceLoader.getServiceLoader() tries to downcast the existing
+     * QtActivityLoader to QtServiceLoader.
+     */
+    private boolean isQtLoaderConflict() {
+        try {
+            Class<?> loaderClass = Class.forName("org.qtproject.qt.android.QtLoader");
+            Field instanceField = loaderClass.getDeclaredField("m_instance");
+            instanceField.setAccessible(true);
+            Object instance = instanceField.get(null);
+            if (instance == null) {
+                return false;
+            }
+            boolean conflict = !instance.getClass().getName().contains("ServiceLoader");
+            if (conflict) {
+                Log.d(TAG, "QtLoader.m_instance is " + instance.getClass().getName()
+                        + " — Activity loader present before isStarted; avoiding QtServiceLoader conflict");
+            }
+            return conflict;
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to inspect QtLoader.m_instance; assuming no conflict", e);
+            return false;
+        }
+    }
     
     // Qt-Native bridge methods - called from C++
     private static native void notifyServiceStarted();
     private static native void notifyServiceStopped();
     private static native void notifyCheckConnection();
+    private static native void notifyAndroidControlEvent(int eventType);
+    private static native void notifyNetworkStateChanged(int generation,
+                                                         int reason,
+                                                         boolean hasDefaultNetwork,
+                                                         boolean validated,
+                                                         int transport,
+                                                         boolean metered,
+                                                         boolean captivePortal,
+                                                         boolean routeChanged);
 }

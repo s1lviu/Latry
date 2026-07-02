@@ -124,17 +124,20 @@ struct MsgError : public MsgHeader {
 // Type 101: Node List (Server -> Client)
 struct MsgNodeList : public MsgHeader {
     uint16_t node_count;
-    // Followed by array of node info structures
+    // Followed by node_count length-prefixed UTF-8 strings
+    char     nodes[];
 };
 
 // Type 102: Node Joined (Server -> Client)
 struct MsgNodeJoined : public MsgHeader {
-    char callsign[Protocol::CALLSIGN_LEN];
+    uint16_t callsign_len;
+    char     callsign[];
 };
 
 // Type 103: Node Left (Server -> Client)
 struct MsgNodeLeft : public MsgHeader {
-    char callsign[Protocol::CALLSIGN_LEN];
+    uint16_t callsign_len;
+    char     callsign[];
 };
 
 // Type 106: Select Talkgroup

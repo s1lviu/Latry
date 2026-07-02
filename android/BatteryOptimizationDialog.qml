@@ -14,6 +14,7 @@ Dialog {
     property alias instructionsText: instructionsLabel.text
 
     header: Rectangle {
+        Accessible.ignored: true
         color: "#f0f0f0"
         height: 60
         width: parent.width
@@ -28,6 +29,7 @@ Dialog {
     }
 
     contentItem: Rectangle {
+        Accessible.ignored: true
         color: "white"
         border.color: "#e0e0e0"
         border.width: 1
@@ -39,7 +41,6 @@ Dialog {
             clip: true
             contentWidth: availableWidth
             ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-
             Label {
                 id: instructionsLabel
                 width: scrollView.availableWidth
@@ -58,6 +59,7 @@ Dialog {
     }
 
     footer: Rectangle {
+        Accessible.ignored: true
         color: "#f8f8f8"
         height: 60
         width: parent.width
@@ -65,23 +67,27 @@ Dialog {
         border.width: 1
         
         Button {
+            id: closeButton
             text: "Got it"
             anchors.centerIn: parent
+            Accessible.name: qsTr("Close battery optimization help")
             onClicked: root.close()
             
             background: Rectangle {
-                color: parent.pressed ? "#0066cc" : "#007fff"
+                Accessible.ignored: true
+                color: closeButton.pressed ? "#0066cc" : "#007fff"
                 radius: 6
                 border.color: "#0066cc"
                 border.width: 1
             }
             
             contentItem: Text {
-                text: parent.text
+                text: closeButton.text
                 color: "white"
                 font.bold: true
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
+                Accessible.ignored: true
             }
         }
     }

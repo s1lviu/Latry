@@ -55,14 +55,19 @@ qint64 AudioStreamDevice::readData(char *data, qint64 maxSize)
 
     // Read the native 16kHz samples
     std::vector<float> nativeSamples(samplesToReadFromBuffer);
-    m_jitterBuffer->readSamples(nativeSamples.data(), samplesToReadFromBuffer);
+    const int nativeSamplesRead = m_jitterBuffer->readSamples(nativeSamples.data(), samplesToReadFromBuffer);
+    if (nativeSamplesRead <= 0) {
+        return 0;
+    }
 
     // Resample them if needed
     std::vector<float>* finalSamples = &nativeSamples;
     std::vector<float> resampledSamples;
     if (m_outputResampler) {
-        resampledSamples = m_outputResampler->process(nativeSamples.data(), nativeSamples.size());
+        resampledSamples = m_outputResampler->process(nativeSamples.data(), nativeSamplesRead);
         finalSamples = &resampledSamples;
+    } else if (nativeSamplesRead != samplesToReadFromBuffer) {
+        nativeSamples.resize(static_cast<size_t>(nativeSamplesRead));
     }
 
     // Write the resampled data to the buffer with format conversion if needed
@@ -93,7 +98,7 @@ qint64 AudioStreamDevice::writeData(const char*, qint64)
 
 qint64 AudioStreamDevice::bytesAvailable() const
 {
-    const int availableNativeSamples = m_jitterBuffer->samplesInBuffer();
+    const int availableNativeSamples = m_jitterBuffer->samplesReadyForPlayback();
     const int bytesPerSample = (m_sampleFormat == QAudioFormat::Int16) ? sizeof(qint16) : sizeof(float);
 
     if (m_outputResampler) {
@@ -112,4 +117,3 @@ void AudioStreamDevice::triggerReadyRead()
     // The readData method handles the case when there's insufficient data
     emit readyRead();
 }
-

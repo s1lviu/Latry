@@ -21,6 +21,8 @@
 #include <vector>
 #include <algorithm>
 #include <cstring>
+#include <mutex>
+#include <chrono>
 
 class AudioJitterBuffer
 {
@@ -32,11 +34,12 @@ public:
 
     bool empty() const { return m_head == m_tail; }
     unsigned samplesInBuffer() const;
+    unsigned samplesReadyForPlayback() const;
     unsigned prebufSamples() const { return m_prebufSamples; }
 
     void clear();
     void writeSamples(const float* samples, int count);
-    void readSamples(float* output, int count);
+    int readSamples(float* output, int count);
 
 private:
     std::vector<float> m_fifo;
@@ -45,6 +48,8 @@ private:
     unsigned m_tail = 0;
     unsigned m_prebufSamples = 0;
     bool m_prebuf = true;
+    std::chrono::steady_clock::time_point m_lastWriteTime{};
+    mutable std::mutex m_mutex;
 };
 
 #endif // AUDIOJITTERBUFFER_H

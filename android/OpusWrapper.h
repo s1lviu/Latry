@@ -33,6 +33,7 @@ public:
     void applySvxlinkDefaults();
 
 private:
+    friend class AudioEngineTest;
     ::OpusEncoder* m_encoder = nullptr;
 };
 
@@ -47,7 +48,6 @@ public:
 
 private:
     ::OpusDecoder* m_decoder = nullptr;
-    int m_channels           = 1;
 };
 
 #endif // OPUSWRAPPER_H

@@ -1,19 +1,61 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(latry VERSION 0.1 LANGUAGES CXX)
+project(latry VERSION 0.0.18 LANGUAGES CXX)
 
+set(LATRY_VERSION_NAME "${PROJECT_VERSION}")
+set(LATRY_VERSION_CODE 32)
+
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
+include(CTest)
+
+set(LATRY_CORE_SOURCES
+    ReflectorClient.cpp
+    ReflectorClientConnection.cpp
+    ReflectorClientProtocol.cpp
+    ReflectorClientUdp.cpp
+    ReflectorClientPtt.cpp
+    ReflectorClientRecovery.cpp
+    ReflectorClientJni.cpp
+    AudioEngine.cpp
+    AudioEngineRecording.cpp
+    AudioEnginePlayback.cpp
+    AudioEngineFocus.cpp
+    AndroidAudioRecordInput.cpp
+    AndroidAudioTrackOutput.cpp
+    AndroidAudioRouteInterop.cpp
+    AudioLimiter.cpp
+    AudioJitterBuffer.cpp
+    AudioStreamDevice.cpp
+    OpusWrapper.cpp
+    Resampler.cpp
+)
+
+set(LATRY_APP_SOURCES
+    main.cpp
+    ${LATRY_CORE_SOURCES}
+    BatteryOptimizationHandler.cpp
+)
 
 # --- Find/Build All Dependencies FIRST ---
 
 # 1. Find Qt6 - This MUST come before any qt_* commands.
 find_package(Qt6 6.9 REQUIRED COMPONENTS Quick Network Multimedia)
+qt_policy(SET QTP0002 NEW)
 if(ANDROID)
+    # The project builds both the main app and a dedicated Qt Android service binary.
+    # Use per-target Android build directories so deployment artifacts do not collide.
+    set(QT_USE_TARGET_ANDROID_BUILD_DIR ON CACHE BOOL
+        "Use per-target Android build directories for Qt Android deployment" FORCE)
+
     # AndroidExtras is optional in Qt 6.5+ where APIs moved to QtCore
     find_package(Qt6AndroidExtras QUIET)
+    # CorePrivate needed for QtAndroidPrivate permission APIs (qandroidextras_p.h)
+    find_package(Qt6 COMPONENTS CorePrivate QUIET)
 
     # Add OpenSSL support via KDAB
        include(FetchContent)
@@ -24,6 +66,7 @@ if(ANDROID)
        )
        FetchContent_MakeAvailable(android_openssl)
        include(${android_openssl_SOURCE_DIR}/android_openssl.cmake)
+
 endif()
 
 # 2. Find/Build Opus (Platform-Aware)
@@ -62,20 +105,16 @@ else()
     endif()
 
     include_directories(${OPUS_INCLUDE_DIR})
+    if (EXISTS "${OPUS_INCLUDE_DIR}/opus/opus.h")
+        include_directories("${OPUS_INCLUDE_DIR}/opus")
+    endif()
     # No external resampler dependency is required
 endif()
 
 
 # --- Define the Application Target ---
 qt_add_executable(applatry
-    main.cpp
-    ReflectorClient.cpp
-    AudioEngine.cpp
-    AudioJitterBuffer.cpp
-    AudioStreamDevice.cpp
-    OpusWrapper.cpp
-    Resampler.cpp
-    BatteryOptimizationHandler.cpp
+    ${LATRY_APP_SOURCES}
     qml.qrc
 )
 
@@ -90,7 +129,54 @@ if(ANDROID)
     if(TARGET Qt6::AndroidExtras)
         target_link_libraries(applatry PRIVATE Qt6::AndroidExtras)
     endif()
-    target_link_libraries(applatry PRIVATE Qt6::CorePrivate opus)
+    # CorePrivate needed for QtAndroidPrivate permission APIs (qandroidextras_p.h)
+    if(TARGET Qt6::CorePrivate)
+        target_link_libraries(applatry PRIVATE Qt6::CorePrivate)
+    else()
+        # Fallback: manually add private include path
+        get_target_property(_qt_core_includes Qt6::Core INTERFACE_INCLUDE_DIRECTORIES)
+        foreach(_dir IN LISTS _qt_core_includes)
+            if(_dir MATCHES "include/QtCore$" AND EXISTS "${_dir}/${Qt6_VERSION}")
+                target_include_directories(applatry PRIVATE "${_dir}/${Qt6_VERSION}")
+                break()
+            endif()
+        endforeach()
+    endif()
+    target_link_libraries(applatry PRIVATE opus)
+
+    qt_add_executable(latryservice
+        service_main.cpp
+        ${LATRY_CORE_SOURCES}
+    )
+    target_link_libraries(latryservice PRIVATE
+        Qt6::Core
+        Qt6::Network
+        Qt6::Multimedia
+        opus
+    )
+    if(TARGET Qt6::AndroidExtras)
+        target_link_libraries(latryservice PRIVATE Qt6::AndroidExtras)
+    endif()
+    if(TARGET Qt6::CorePrivate)
+        target_link_libraries(latryservice PRIVATE Qt6::CorePrivate)
+    else()
+        get_target_property(_qt_core_includes Qt6::Core INTERFACE_INCLUDE_DIRECTORIES)
+        foreach(_dir IN LISTS _qt_core_includes)
+            if(_dir MATCHES "include/QtCore$" AND EXISTS "${_dir}/${Qt6_VERSION}")
+                target_include_directories(latryservice PRIVATE "${_dir}/${Qt6_VERSION}")
+                break()
+            endif()
+        endforeach()
+    endif()
+    target_compile_definitions(latryservice PRIVATE
+        LATRY_VERSION_NAME="${LATRY_VERSION_NAME}"
+    )
+
+    set_property(TARGET applatry APPEND PROPERTY
+        QT_ANDROID_EXTRA_LIBS
+        $<TARGET_FILE:latryservice>
+    )
+    add_dependencies(applatry latryservice)
 
     set_target_properties(applatry PROPERTIES
         # This tells Qt where to find your AndroidManifest.xml, build.gradle, etc.
@@ -104,6 +190,9 @@ if(ANDROID)
         QT_ANDROID_APP_ICON "@mipmap/ic_launcher"
 
         QT_ANDROID_APP_NAME "Latry"
+
+        QT_ANDROID_VERSION_NAME "${LATRY_VERSION_NAME}"
+        QT_ANDROID_VERSION_CODE "${LATRY_VERSION_CODE}"
     )
 
     # Add OpenSSL libs to APK
@@ -112,6 +201,9 @@ else()
     target_link_libraries(applatry PRIVATE ${OPUS_LIBRARY})
 endif()
 
+target_compile_definitions(applatry PRIVATE
+    LATRY_VERSION_NAME="${LATRY_VERSION_NAME}"
+)
 
 # --- Configure Final Target Properties ---
 set_target_properties(applatry PROPERTIES
@@ -128,3 +220,73 @@ install(TARGETS applatry
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+
+if(BUILD_TESTING AND NOT ANDROID)
+    find_package(Qt6 6.9 REQUIRED COMPONENTS Test Qml QuickTest)
+    add_subdirectory(tests)
+
+    add_custom_target(latry_live_reflector_tests
+        COMMAND /bin/sh ${CMAKE_SOURCE_DIR}/scripts/run_live_reflector_tests.sh ${CMAKE_BINARY_DIR}
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        VERBATIM
+        COMMENT "Running live reflector integration tests"
+    )
+
+    find_program(JAVA_EXECUTABLE java)
+    find_program(JAVAC_EXECUTABLE javac)
+    find_program(ADB_EXECUTABLE adb)
+    if(JAVA_EXECUTABLE AND JAVAC_EXECUTABLE)
+        add_custom_target(latry_android_java_tests
+            COMMAND /bin/sh ${CMAKE_SOURCE_DIR}/scripts/run_android_java_route_tests.sh ${CMAKE_SOURCE_DIR}
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+            VERBATIM
+            COMMENT "Running Android Java route-policy tests"
+        )
+
+        add_test(
+            NAME latry_android_java_route_tests
+            COMMAND /bin/sh ${CMAKE_SOURCE_DIR}/scripts/run_android_java_route_tests.sh ${CMAKE_SOURCE_DIR}
+        )
+        set_tests_properties(latry_android_java_route_tests PROPERTIES LABELS "android-jvm")
+    else()
+        message(STATUS "java/javac not found: Android Java route tests disabled")
+    endif()
+
+    if(ADB_EXECUTABLE)
+        add_custom_target(latry_android_device_suite
+            COMMAND /bin/sh -c "exec /bin/sh '${CMAKE_SOURCE_DIR}/scripts/run_android_device_suite.sh' \"\${LATRY_ANDROID_BUILD_DIR:-}\" \"\${LATRY_ANDROID_DEVICE_SERIAL:-}\""
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+            VERBATIM
+            COMMENT "Running Android device suite with isolated instrumentation classes"
+        )
+
+        add_custom_target(latry_android_service_smoke_tests
+            COMMAND /bin/sh -c "exec /bin/sh '${CMAKE_SOURCE_DIR}/scripts/run_android_service_smoke_tests.sh' \"\${LATRY_ANDROID_BUILD_DIR:-}\" \"\${LATRY_ANDROID_DEVICE_SERIAL:-}\""
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+            VERBATIM
+            COMMENT "Running Android foreground-service smoke tests on a connected device"
+        )
+    else()
+        message(STATUS "adb not found: Android device smoke tests disabled")
+    endif()
+endif()
+
+find_program(JQ_EXECUTABLE jq)
+if(JQ_EXECUTABLE)
+    add_custom_target(latry_deadcode
+        COMMAND /bin/sh ${CMAKE_SOURCE_DIR}/scripts/run_deadcode_scan.sh ${CMAKE_BINARY_DIR}
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        VERBATIM
+        COMMENT "Running compiler-backed dead-code warning scan on first-party sources"
+    )
+
+    if(BUILD_TESTING)
+        add_test(
+            NAME latry_deadcode_scan
+            COMMAND /bin/sh ${CMAKE_SOURCE_DIR}/scripts/run_deadcode_scan.sh ${CMAKE_BINARY_DIR}
+        )
+        set_tests_properties(latry_deadcode_scan PROPERTIES LABELS "static-analysis")
+    endif()
+else()
+    message(STATUS "jq not found: dead-code scan target disabled")
+endif()

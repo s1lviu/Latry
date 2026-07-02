@@ -73,7 +73,6 @@ void OpusEncoder::applySvxlinkDefaults()
 // OpusDecoder  – FIXED (scaling removed)
 // -----------------------------------------------------------------------------
 OpusDecoder::OpusDecoder(opus_int32 sample_rate, int channels)
-    : m_channels(channels)
 {
     int error = 0;
     m_decoder = opus_decoder_create(sample_rate, channels, &error);

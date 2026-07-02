@@ -39,6 +39,8 @@ private slots:
     void onApiResult(QNetworkReply *reply);
 
 private:
+    friend class BatteryOptimizationHandlerTest;
+
     QNetworkAccessManager *m_networkAccessManager;
     QString getGenericInstructions() const;
 };
