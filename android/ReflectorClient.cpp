@@ -16,6 +16,7 @@
  */
 
 #include "ReflectorClient.h"
+#include "SppPttBridge.h"
 #include "AppLaunchMode.h"
 #include <QCoreApplication>
 #include <QThread>
@@ -1929,43 +1930,3 @@ void ReflectorClient::onAudioSetupFinished()
     resumeAndroidPttAfterReconnectIfReady();
 #endif
 }
-
-#ifndef LATRY_SERVICE_BUILD
-void ReflectorClient::clearLearnedSppDevice()
-{
-#if defined(Q_OS_ANDROID)
-    QJniObject activity = QNativeInterface::QAndroidApplication::context();
-    QJniObject::callStaticMethod<void>(
-        "yo6say/latry/HardwarePttSettingsStore",
-        "clearLearnedSppDevice",
-        "(Landroid/content/Context;)V",
-        activity.object<jobject>());
-#endif
-    m_learnedSppDeviceName.clear();
-    m_learnedSppDeviceAddress.clear();
-    emit hardwarePttSettingsChanged();
-
-    if (m_sppPttBridge) {
-        m_sppPttBridge->setEnabled(false);
-        m_sppPttBridge.reset();
-    }
-}
-
-void ReflectorClient::startSppPttBridgeIfNeeded()
-{
-    if (m_learnedSppDeviceAddress.isEmpty()) {
-        return;
-    }
-
-    if (!m_sppPttBridge) {
-        m_sppPttBridge = std::make_unique<SppPttBridge>(this);
-        connect(m_sppPttBridge.get(), &SppPttBridge::pttButtonPressed,
-                this, &ReflectorClient::pttPressed);
-        connect(m_sppPttBridge.get(), &SppPttBridge::pttButtonReleased,
-                this, &ReflectorClient::pttReleased);
-    }
-
-    m_sppPttBridge->selectDevice(m_learnedSppDeviceName, m_learnedSppDeviceAddress);
-    m_sppPttBridge->setEnabled(true);
-}
-#endif // LATRY_SERVICE_BUILD

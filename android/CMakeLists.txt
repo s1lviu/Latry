@@ -40,6 +40,7 @@ set(LATRY_APP_SOURCES
     main.cpp
     ${LATRY_CORE_SOURCES}
     BatteryOptimizationHandler.cpp
+    ReflectorClientSpp.cpp
 )
 
 # --- Find/Build All Dependencies FIRST ---
@@ -154,7 +155,6 @@ if(ANDROID)
         Qt6::Core
         Qt6::Network
         Qt6::Multimedia
-        Qt6::Bluetooth
         opus
     )
     if(TARGET Qt6::AndroidExtras)

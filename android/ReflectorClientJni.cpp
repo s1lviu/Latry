@@ -431,9 +431,7 @@ void ReflectorClient::notifyHardwarePttLearningResult(int result, int keyCode)
                     client->m_learnedSppDeviceAddress = addrObj.toString();
 #endif
                     emit client->hardwarePttSettingsChanged();
-#ifndef LATRY_SERVICE_BUILD
                     client->startSppPttBridgeIfNeeded();
-#endif
                 }
                 emit client->hardwarePttLearningActiveChanged();
                 emit client->hardwarePttLearningResultChanged();

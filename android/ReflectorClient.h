@@ -27,9 +27,6 @@
 #include <QVariantList>
 #include <QElapsedTimer>
 #include "AudioEngine.h"
-#ifndef LATRY_SERVICE_BUILD
-#include "SppPttBridge.h"
-#endif
 #include <memory>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -40,6 +37,7 @@
 #endif
 
 class QDataStream; // Forward declaration
+class SppPttBridge; // forward declaration – full type only needed in ReflectorClient.cpp
 
 class ReflectorClient : public QObject
 {
@@ -69,12 +67,10 @@ class ReflectorClient : public QObject
                NOTIFY hardwarePttLearningActiveChanged)
     Q_PROPERTY(int hardwarePttLearningResult READ hardwarePttLearningResult
                NOTIFY hardwarePttLearningResultChanged)
-#ifndef LATRY_SERVICE_BUILD
     Q_PROPERTY(QString learnedSppDeviceName READ learnedSppDeviceName
                NOTIFY hardwarePttSettingsChanged)
     Q_PROPERTY(QString learnedSppDeviceAddress READ learnedSppDeviceAddress
                NOTIFY hardwarePttSettingsChanged)
-#endif
     Q_PROPERTY(bool txTimeoutWarning READ txTimeoutWarning NOTIFY txTimeoutWarningChanged)
     Q_PROPERTY(qreal rxMeterLevel READ rxMeterLevel NOTIFY rxMeterLevelChanged)
     Q_PROPERTY(qreal rxMeterPeakLevel READ rxMeterPeakLevel NOTIFY rxMeterPeakLevelChanged)
@@ -123,10 +119,8 @@ public:
     int pttHangTimeMs() const { return m_pttHangTimeMs; }
     bool hardwarePttEnabled() const { return m_hardwarePttEnabled; }
     int learnedHardwarePttKeyCode() const { return m_learnedHardwarePttKeyCode; }
-    #ifndef LATRY_SERVICE_BUILD
-        QString learnedSppDeviceName() const { return m_learnedSppDeviceName; }
-        QString learnedSppDeviceAddress() const { return m_learnedSppDeviceAddress; }
-    #endif
+    QString learnedSppDeviceName() const { return m_learnedSppDeviceName; }
+    QString learnedSppDeviceAddress() const { return m_learnedSppDeviceAddress; }
     bool hardwarePttLearningActive() const { return m_hardwarePttLearningActive; }
     int hardwarePttLearningResult() const { return m_hardwarePttLearningResult; }
     bool txTimeoutWarning() const { return m_txTimeoutWarning; }
@@ -168,9 +162,7 @@ public:
     Q_INVOKABLE void setHardwarePttEnabled(bool enabled);
     Q_INVOKABLE void setLearnedHardwarePttKeyCode(int keyCode);
     Q_INVOKABLE void clearLearnedHardwarePttKeyCode();
-    #ifndef LATRY_SERVICE_BUILD
-        Q_INVOKABLE void clearLearnedSppDevice();
-    #endif
+    Q_INVOKABLE void clearLearnedSppDevice();
     Q_INVOKABLE void startHardwarePttLearning();
     Q_INVOKABLE void cancelHardwarePttLearning();
     Q_INVOKABLE void setLiveTranscriptionEnabled(bool enabled);
@@ -495,9 +487,7 @@ private:
     int m_hardwarePttLearningResult = 0;
     QString m_learnedSppDeviceName;
     QString m_learnedSppDeviceAddress;
-    #ifndef LATRY_SERVICE_BUILD
-        std::unique_ptr<SppPttBridge> m_sppPttBridge;
-    #endif
+    std::unique_ptr<SppPttBridge> m_sppPttBridge;
     qreal m_rxMeterLevel = 0.0;
     qreal m_rxMeterPeakLevel = 0.0;
     qreal m_txMeterLevel = 0.0;
