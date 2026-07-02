@@ -124,6 +124,7 @@ target_link_libraries(applatry PRIVATE
     Qt6::Quick
     Qt6::Network
     Qt6::Multimedia
+    Qt6::Bluetooth
 )
 
 if(ANDROID)
