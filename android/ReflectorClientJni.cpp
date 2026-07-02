@@ -414,6 +414,11 @@ void ReflectorClient::notifyHardwarePttLearningResult(int result, int keyCode)
                 if (result == 1 && keyCode > 0) { // RESULT_KEY_CAPTURED
                     client->m_learnedHardwarePttKeyCode = keyCode;
                     emit client->hardwarePttSettingsChanged();
+                } else if (result == 4) { // RESULT_SPP_DEVICE_CAPTURED
+                    // SppPttScanner has already persisted the device to
+                    // HardwarePttSettingsStore. Signal SppPttController
+                    // to reload and start the bridge.
+                    emit client->hardwarePttSettingsChanged();
                 }
 
                 emit client->hardwarePttLearningActiveChanged();
