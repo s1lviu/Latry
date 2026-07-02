@@ -56,6 +56,8 @@ SppPttController::SppPttController(ReflectorClient *reflectorClient, QObject *pa
     if (m_reflectorClient) {
         connect(m_reflectorClient, &ReflectorClient::hardwarePttSettingsChanged,
                 this, &SppPttController::onHardwarePttSettingsChanged);
+        connect(m_reflectorClient, &ReflectorClient::hardwarePttLearningActiveChanged,
+            this, &SppPttController::onHardwarePttLearningActiveChanged);
     }
 
     // Defer JNI calls to ensure Android runtime is fully ready.
@@ -168,5 +170,21 @@ void SppPttController::stopBridge()
         m_bridge->setEnabled(false);
         delete m_bridge;
         m_bridge = nullptr;
+    }
+}
+
+void SppPttController::onHardwarePttLearningActiveChanged()
+{
+    if (!m_reflectorClient) return;
+
+    if (m_reflectorClient->hardwarePttLearningActive()) {
+        // Learning started – stop bridge so B02 is free to accept new connections
+        qDebug() << "SppPttController: pausing bridge for learning mode";
+        stopBridge();
+    } else {
+        // Learning ended – reload and restart bridge
+        qDebug() << "SppPttController: resuming bridge after learning mode";
+        loadLearnedDevice();
+        startBridgeIfNeeded();
     }
 }

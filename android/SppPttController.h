@@ -40,6 +40,7 @@ signals:
 
 private slots:
     void onHardwarePttSettingsChanged();
+    void onHardwarePttLearningActiveChanged();
 
 private:
     void loadLearnedDevice();
