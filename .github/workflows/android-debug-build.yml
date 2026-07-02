@@ -38,7 +38,7 @@ jobs:
     - name: Install Qt ARM64
       uses: jurplel/install-qt-action@v4
       with:
-        version: '6.9.1'
+        version: '6.11.0'
         host: 'linux'
         target: 'android'
         arch: 'android_arm64_v8a'
@@ -48,7 +48,7 @@ jobs:
     - name: Install Qt ARMv7
       uses: jurplel/install-qt-action@v4
       with:
-        version: '6.9.1'
+        version: '6.11.0'
         host: 'linux'
         target: 'android'
         arch: 'android_armv7'
