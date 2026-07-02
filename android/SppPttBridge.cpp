@@ -24,15 +24,7 @@ static const QBluetoothUuid kSppUuid(QStringLiteral("00001101-0000-1000-8000-008
 
 SppPttBridge::SppPttBridge(QObject *parent)
     : QObject(parent)
-    , m_settings(QStringLiteral("YO6SAY"), QStringLiteral("Latry"))
 {
-    m_deviceName = m_settings.value("bluetoothPtt/deviceName", "Inrico B02").toString();
-    m_deviceAddress = m_settings.value("bluetoothPtt/deviceAddress", "08:21:87:24:06:3F").toString();
-    m_enabled = m_settings.value("bluetoothPtt/enabled", true).toBool();
-
-    if (m_enabled && !m_deviceAddress.isEmpty()) {
-        connectToSavedDevice();
-    }
 }
 
 SppPttBridge::~SppPttBridge()

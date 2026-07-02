@@ -28,7 +28,6 @@
 #include <QBluetoothDeviceDiscoveryAgent>
 #include <QBluetoothDeviceInfo>
 #include <QVariantList>
-#include <QSettings>
 
 class SppPttBridge : public QObject
 {
@@ -105,7 +104,6 @@ private:
     QBluetoothDeviceDiscoveryAgent *m_discoveryAgent = nullptr;
     QByteArray m_rxBuffer;
     QVariantList m_discoveredDevices;
-    QSettings m_settings;
 };
 
 #endif // SppPttBridge_H
