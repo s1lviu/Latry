@@ -487,7 +487,7 @@ private:
     int m_hardwarePttLearningResult = 0;
     QString m_learnedSppDeviceName;
     QString m_learnedSppDeviceAddress;
-    std::unique_ptr<SppPttBridge> m_sppPttBridge;
+    SppPttBridge* m_sppPttBridge = nullptr;
     qreal m_rxMeterLevel = 0.0;
     qreal m_rxMeterPeakLevel = 0.0;
     qreal m_txMeterLevel = 0.0;

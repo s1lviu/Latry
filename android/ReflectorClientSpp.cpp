@@ -32,7 +32,6 @@
 
 #include "ReflectorClient.h"
 #include "SppPttBridge.h"
-#include <memory>
 
 #if defined(Q_OS_ANDROID)
 #  include <QtCore/private/qandroidextras_p.h>
@@ -57,7 +56,8 @@ void ReflectorClient::clearLearnedSppDevice()
 
     if (m_sppPttBridge) {
         m_sppPttBridge->setEnabled(false);
-        m_sppPttBridge.reset();
+        delete m_sppPttBridge;
+        m_sppPttBridge = nullptr;
     }
 }
 
@@ -68,10 +68,10 @@ void ReflectorClient::startSppPttBridgeIfNeeded()
     }
 
     if (!m_sppPttBridge) {
-        m_sppPttBridge = std::make_unique<SppPttBridge>(this);
-        connect(m_sppPttBridge.get(), &SppPttBridge::pttButtonPressed,
+        m_sppPttBridge = new SppPttBridge(this);
+        connect(m_sppPttBridge, &SppPttBridge::pttButtonPressed,
                 this, &ReflectorClient::pttPressed);
-        connect(m_sppPttBridge.get(), &SppPttBridge::pttButtonReleased,
+        connect(m_sppPttBridge, &SppPttBridge::pttButtonReleased,
                 this, &ReflectorClient::pttReleased);
     }
 
