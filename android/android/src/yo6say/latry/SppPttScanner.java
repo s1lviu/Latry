@@ -144,6 +144,8 @@ final class SppPttScanner {
             String pressPattern = null;
             String releasePattern = null;
 
+            final StringBuilder rxBuffer = new StringBuilder();
+
             while (scanning && System.currentTimeMillis() < deadline) {
                 final int available = stream.available();
                 if (available <= 0) {
@@ -152,33 +154,43 @@ final class SppPttScanner {
                 }
 
                 final int n = stream.read(buf, 0, Math.min(available, buf.length));
-                if (n <= 0) {
-                    continue;
+                if (n <= 0) continue;
+
+                rxBuffer.append(new String(buf, 0, n));
+                final String bufStr = rxBuffer.toString();
+
+                // B02 sends fixed-length 6-byte messages without delimiter,
+                // so check for known patterns anywhere in the buffer.
+                // Also handles newline-terminated devices.
+                String candidate = null;
+                int consumeUpTo = -1;
+
+                int nlIdx = bufStr.indexOf('\n');
+                if (nlIdx >= 0) {
+                    candidate = bufStr.substring(0, nlIdx).trim();
+                    consumeUpTo = nlIdx + 1;
+                } else if (bufStr.length() >= 6) {
+                    // No newline – treat accumulated data as candidate
+                    candidate = bufStr.trim();
+                    consumeUpTo = bufStr.length();
                 }
 
-                // Trim whitespace/newlines and use raw string as pattern
-                final String received = new String(buf, 0, n).trim();
-                if (received.isEmpty()) {
-                    continue;
-                }
+                if (candidate != null && !candidate.isEmpty()) {
+                    Log.i(TAG, "SPP candidate from " + name + ": [" + candidate + "]");
+                    rxBuffer.delete(0, consumeUpTo);
 
-                Log.i(TAG, "SPP received from " + name + ": [" + received + "]");
-
-                if (pressPattern == null) {
-                    // First message = press pattern
-                    pressPattern = received;
-                    Log.i(TAG, "Learned press pattern: [" + pressPattern + "]");
-                } else if (releasePattern == null && !received.equals(pressPattern)) {
-                    // Second distinct message = release pattern
-                    releasePattern = received;
-                    Log.i(TAG, "Learned release pattern: [" + releasePattern + "]");
-
-                    // We have both – report success
-                    final String finalPress = pressPattern;
-                    final String finalRelease = releasePattern;
-                    onDeviceDetected(context, name, address,
-                                     finalPress, finalRelease, callback);
-                    return;
+                    if (pressPattern == null) {
+                        pressPattern = candidate;
+                        Log.i(TAG, "Learned press pattern: [" + pressPattern + "]");
+                    } else if (releasePattern == null
+                               && !candidate.equals(pressPattern)) {
+                        releasePattern = candidate;
+                        Log.i(TAG, "Learned release pattern: [" + releasePattern + "]");
+                        final String fp = pressPattern;
+                        final String fr = releasePattern;
+                        onDeviceDetected(context, name, address, fp, fr, callback);
+                        return;
+                    }
                 }
             }
 
