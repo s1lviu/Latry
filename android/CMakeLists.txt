@@ -40,7 +40,7 @@ set(LATRY_APP_SOURCES
     ${LATRY_CORE_SOURCES}
     BatteryOptimizationHandler.cpp
     SppPttBridge.cpp
-    ReflectorClientSpp.cpp
+    SppPttController.cpp
 )
 
 # --- Find/Build All Dependencies FIRST ---

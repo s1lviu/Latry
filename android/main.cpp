@@ -22,6 +22,7 @@
 #include "ReflectorClient.h"
 #include "AppLaunchMode.h"
 #include "BatteryOptimizationHandler.h"
+#include "SppPttController.h"
 #include <QtQuickControls2/QQuickStyle>
 
 using namespace Qt::StringLiterals;
@@ -77,6 +78,10 @@ int main(int argc, char *argv[])
         // Register the already-created singleton instance so QML uses the same object as JNI.
         qmlRegisterSingletonInstance<ReflectorClient>(
             "SvxlinkReflector.Client", 1, 0, "ReflectorClient", reflectorClient);
+
+        SppPttController *sppPttController = new SppPttController(reflectorClient);
+        qmlRegisterSingletonInstance<SppPttController>(
+            "SvxlinkReflector.Client", 1, 0, "SppPttController", sppPttController);
 
         qmlRegisterSingletonType<BatteryOptimizationHandler>("SvxlinkReflector.Client", 1, 0, "BatteryOptimizationHandler",
             [](QQmlEngine *engine, QJSEngine *scriptEngine) -> QObject * {
