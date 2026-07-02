@@ -7,6 +7,8 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.content.pm.PackageManager;
+import androidx.core.content.ContextCompat;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -59,6 +61,16 @@ final class SppPttScanner {
         if (scanning) {
             Log.w(TAG, "startScanning: already active");
             return false;
+        }
+
+        // Android 12+: BLUETOOTH_CONNECT is required to call getBondedDevices()
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(context,
+                    android.Manifest.permission.BLUETOOTH_CONNECT)
+                    != PackageManager.PERMISSION_GRANTED) {
+                Log.w(TAG, "startScanning: BLUETOOTH_CONNECT permission not granted");
+                return false;
+            }
         }
 
         final BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
