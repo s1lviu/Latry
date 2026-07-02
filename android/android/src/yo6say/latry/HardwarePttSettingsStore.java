@@ -9,6 +9,9 @@ final class HardwarePttSettingsStore {
     private static final String PREFS_NAME = "LatryHardwarePttPrefs";
     private static final String PREF_POC_BUTTON_ENABLED = "poc_button_enabled";
     private static final String PREF_LEARNED_PTT_KEY_CODE = "learned_ptt_key_code";
+    static final String NO_LEARNED_SPP_ADDRESS = "";
+    private static final String PREF_LEARNED_SPP_ADDRESS = "learned_spp_address";
+    private static final String PREF_LEARNED_SPP_NAME    = "learned_spp_name";
 
     private HardwarePttSettingsStore() {
     }
@@ -64,6 +67,44 @@ final class HardwarePttSettingsStore {
 
         preferences(context).edit()
                 .putInt(PREF_LEARNED_PTT_KEY_CODE, NO_LEARNED_PTT_KEY_CODE)
+                .apply();
+    }
+
+    static boolean hasLearnedSppDevice(Context context) {
+        return !getLearnedSppAddress(context).isEmpty();
+    }
+
+    static String getLearnedSppAddress(Context context) {
+        if (context == null) {
+            return NO_LEARNED_SPP_ADDRESS;
+        }
+        return preferences(context).getString(PREF_LEARNED_SPP_ADDRESS, NO_LEARNED_SPP_ADDRESS);
+    }
+
+    static String getLearnedSppName(Context context) {
+        if (context == null) {
+            return "";
+        }
+        return preferences(context).getString(PREF_LEARNED_SPP_NAME, "");
+    }
+
+    static void setLearnedSppDevice(Context context, String name, String address) {
+        if (context == null) {
+            return;
+        }
+        preferences(context).edit()
+                .putString(PREF_LEARNED_SPP_ADDRESS, address != null ? address : NO_LEARNED_SPP_ADDRESS)
+                .putString(PREF_LEARNED_SPP_NAME, name != null ? name : "")
+                .apply();
+    }
+
+    static void clearLearnedSppDevice(Context context) {
+        if (context == null) {
+            return;
+        }
+        preferences(context).edit()
+                .putString(PREF_LEARNED_SPP_ADDRESS, NO_LEARNED_SPP_ADDRESS)
+                .putString(PREF_LEARNED_SPP_NAME, "")
                 .apply();
     }
 
