@@ -595,7 +595,7 @@ private static AudioDeviceInfo findPlaybackDeviceLocked(String routeId) {
         Log.i(TAG, "applyRouteLocked: " + normalizedRoute);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (ROUTE_BLUETOOTH.equals(normalizedRoute)) {
+            if (LatryAudioRoutePolicy.isBluetoothRoute(normalizedRoute)) {
                 try {
                     audioManager.clearCommunicationDevice();
                 } catch (Exception e) {
