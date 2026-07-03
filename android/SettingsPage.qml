@@ -231,9 +231,21 @@ Page {
 
             Label {
                 Layout.fillWidth: true
-                text: qsTr("Press the physical PTT button now.\n\nThe first valid hardware key will be saved as your PTT button.")
+                text: qsTr("Push button directly or choose device from list.")
                 wrapMode: Text.WordWrap
                 horizontalAlignment: Text.AlignHCenter
+            }
+
+            Repeater {
+                model: SppPttController.pairedSppDevices
+                delegate: Button {
+                    Layout.fillWidth: true
+                    text: modelData.name
+                    onClicked: {
+                        SppPttController.selectSppDevice(modelData.name, modelData.address)
+                        pttLearningDialog.close()
+                    }
+                }
             }
 
             BusyIndicator {
@@ -1522,6 +1534,7 @@ Page {
                                             Accessible.description: qsTr("Press this, then press the physical button you want to use as PTT")
                                             onClicked: {
                                                 page.reflectorClient.startHardwarePttLearning()
+                                                SppPttController.refreshPairedDevices()
                                                 pttLearningDialog.open()
                                             }
                                         }

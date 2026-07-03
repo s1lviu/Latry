@@ -11,6 +11,10 @@
 #include "SppPttBridge.h"
 #include "ReflectorClient.h"
 #include <QDebug>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QVariantMap>
 
 #if defined(Q_OS_ANDROID)
 #  include <QtCore/private/qandroidextras_p.h>
@@ -187,4 +191,42 @@ void SppPttController::onHardwarePttLearningActiveChanged()
         loadLearnedDevice();
         startBridgeIfNeeded();
     }
+}
+
+void SppPttController::refreshPairedDevices()
+{
+#if defined(Q_OS_ANDROID)
+    QJniObject activity = safeGetContext();
+    if (!activity.isValid()) return;
+
+    QJniObject json = QJniObject::callStaticObjectMethod(
+        "yo6say/latry/SppDeviceHelper",
+        "getPairedClassicDevicesJson",
+        "(Landroid/content/Context;)Ljava/lang/String;",
+        activity.object<jobject>());
+
+    if (!json.isValid()) return;
+
+    QJsonArray arr = QJsonDocument::fromJson(
+        json.toString().toUtf8()).array();
+
+    m_pairedDevices.clear();
+    for (const QJsonValue &v : arr) {
+        QVariantMap entry;
+        entry["name"]    = v["name"].toString();
+        entry["address"] = v["address"].toString();
+        m_pairedDevices.append(entry);
+    }
+    emit pairedSppDevicesChanged();
+#endif
+}
+
+void SppPttController::selectSppDevice(const QString &name, const QString &address)
+{
+    m_deviceName    = name;
+    m_deviceAddress = address;
+    m_pressPattern.clear();
+    m_releasePattern.clear();
+    emit learnedSppDeviceChanged();
+    startBridgeIfNeeded();
 }

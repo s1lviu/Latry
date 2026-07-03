@@ -12,6 +12,9 @@
 
 #include <QObject>
 #include <QString>
+#include <QObject>
+#include <QString>
+#include <QVariantList>
 
 class ReflectorClient;
 class SppPttBridge;
@@ -24,6 +27,8 @@ class SppPttController : public QObject
                NOTIFY learnedSppDeviceChanged)
     Q_PROPERTY(QString learnedSppDeviceAddress READ learnedSppDeviceAddress
                NOTIFY learnedSppDeviceChanged)
+    Q_PROPERTY(QVariantList pairedSppDevices READ pairedSppDevices
+               NOTIFY pairedSppDevicesChanged)
 
 public:
     explicit SppPttController(ReflectorClient *reflectorClient,
@@ -32,11 +37,15 @@ public:
 
     QString learnedSppDeviceName() const { return m_deviceName; }
     QString learnedSppDeviceAddress() const { return m_deviceAddress; }
+    QVariantList pairedSppDevices() const { return m_pairedDevices; }
 
     Q_INVOKABLE void clearLearnedSppDevice();
+    Q_INVOKABLE void refreshPairedDevices();
+    Q_INVOKABLE void selectSppDevice(const QString &name, const QString &address);
 
 signals:
     void learnedSppDeviceChanged();
+    void pairedSppDevicesChanged();
 
 private slots:
     void onHardwarePttSettingsChanged();
@@ -53,6 +62,7 @@ private:
     QString          m_deviceAddress;
     QString          m_pressPattern;
     QString          m_releasePattern;
+    QVariantList     m_pairedDevices;
 };
 
 #endif // SPPPTTCONTROLLER_H
