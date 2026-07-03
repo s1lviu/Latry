@@ -231,13 +231,9 @@ Page {
 
             Label {
                 Layout.fillWidth: true
-                text: qsTr("Press a hardware button, or select a paired Bluetooth device below.")
+                text: qsTr("Press button OR select device")
                 wrapMode: Text.WordWrap
                 horizontalAlignment: Text.AlignHCenter
-            }
-
-            Label {
-                text: "Devices: " + SppPttController.pairedSppDevices.length
             }
 
             Repeater {

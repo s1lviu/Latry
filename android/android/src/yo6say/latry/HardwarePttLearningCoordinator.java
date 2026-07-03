@@ -55,26 +55,11 @@ final class HardwarePttLearningCoordinator {
                 learningActive = false;
                 handler = null;
                 timeoutRunnable = null;
-                SppPttScanner.stopScanning();
                 LatryActivity.notifyHardwarePttLearningResult(RESULT_TIMEOUT,
                         HardwarePttSettingsStore.NO_LEARNED_PTT_KEY_CODE);
             }
         };
         handler.postDelayed(timeoutRunnable, LEARNING_TIMEOUT_MS);
-
-        SppPttScanner.startScanning(context, (name, address, pressPattern, releasePattern) -> {
-            if (!learningActive) {
-                return;
-            }
-            clearTimeout();
-            learningActive = false;
-            SppPttScanner.stopScanning();
-            Log.i(TAG, "SPP PTT device learned: " + name
-                    + " press=[" + pressPattern + "]"
-                    + " release=[" + releasePattern + "]");
-            LatryActivity.notifyHardwarePttLearningResult(4,
-                    HardwarePttSettingsStore.NO_LEARNED_PTT_KEY_CODE);
-        });
 
         Log.i(TAG, "Learning mode started (key + SPP), timeout=" + LEARNING_TIMEOUT_MS + " ms");
         return true;
@@ -129,7 +114,6 @@ final class HardwarePttLearningCoordinator {
         // Valid candidate — persist and finish
         clearTimeout();
         learningActive = false;
-        SppPttScanner.stopScanning();
 
         HardwarePttSettingsStore.setLearnedPttKeyCode(context, keyCode);
         Log.i(TAG, "Learned hardware PTT keyCode=" + keyCode);

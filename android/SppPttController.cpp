@@ -223,17 +223,6 @@ void SppPttController::refreshPairedDevices()
 
 void SppPttController::selectSppDevice(const QString &name, const QString &address)
 {
-#if defined(Q_OS_ANDROID)
-    // Stop SPP scanning so B02 is free to accept our connection
-    QJniObject activity = safeGetContext();
-    if (activity.isValid()) {
-        QJniObject::callStaticMethod<void>(
-            "yo6say/latry/SppPttScanner",
-            "stopScanning",
-            "()V");
-    }
-#endif
-
     m_deviceName    = name;
     m_deviceAddress = address;
     m_pressPattern.clear();
