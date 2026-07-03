@@ -2,5 +2,6 @@
 <resources>
     <style name="NormalTheme" parent="@android:style/Theme.DeviceDefault.DayNight">
         <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
+        <item name="android:windowLightStatusBar">true</item>
     </style>
 </resources>

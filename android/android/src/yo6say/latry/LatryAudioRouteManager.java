@@ -343,26 +343,40 @@ public final class LatryAudioRouteManager {
             }
         }
 
-        // Also include all connected A2DP devices that may not be active
-        // (e.g. B02 when car stereo is the active A2DP device)
-        if (appContext != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        // Include all connected Classic BT devices that support A2DP,
+        // even if they are not the currently active audio output.
+        // Uses reflection to check ACL connection state (same safe approach
+        // as SppDeviceHelper) — purely passive, no system state manipulation.
+        if (appContext != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             try {
-                BluetoothManager bluetoothManager =
-                    (BluetoothManager) appContext.getSystemService(Context.BLUETOOTH_SERVICE);
-                if (bluetoothManager != null) {
-                    List<BluetoothDevice> a2dpDevices =
-                        bluetoothManager.getConnectedDevices(BluetoothProfile.A2DP);
-                    for (BluetoothDevice device : a2dpDevices) {
-                        String routeId = LatryAudioRoutePolicy.ROUTE_BLUETOOTH_PREFIX
-                                + device.getName();
-                        if (!routes.contains(routeId)) {
-                            Log.d(TAG, "Adding inactive A2DP device: " + routeId);
-                            routes.add(routeId);
+                BluetoothManager btManager = (BluetoothManager)
+                        appContext.getSystemService(Context.BLUETOOTH_SERVICE);
+                if (btManager != null) {
+                    android.bluetooth.BluetoothAdapter adapter = btManager.getAdapter();
+                    if (adapter != null && adapter.isEnabled()) {
+                        java.lang.reflect.Method isConnected =
+                                android.bluetooth.BluetoothDevice.class.getMethod("isConnected");
+                        for (android.bluetooth.BluetoothDevice device
+                                : adapter.getBondedDevices()) {
+                            if (device.getType()
+                                    == android.bluetooth.BluetoothDevice.DEVICE_TYPE_LE) {
+                                continue;
+                            }
+                            try {
+                                if (!(boolean) isConnected.invoke(device)) continue;
+                            } catch (Exception ignored) {}
+
+                            String routeId = LatryAudioRoutePolicy.ROUTE_BLUETOOTH_PREFIX
+                                    + device.getName();
+                            if (!routes.contains(routeId)) {
+                                Log.d(TAG, "Adding connected BT device: " + routeId);
+                                routes.add(routeId);
+                            }
                         }
                     }
                 }
             } catch (Exception e) {
-                Log.w(TAG, "Failed to get connected A2DP devices: " + e.getMessage());
+                Log.w(TAG, "Failed to enumerate connected BT devices: " + e.getMessage());
             }
         }
 
@@ -647,6 +661,7 @@ private static AudioDeviceInfo findPlaybackDeviceLocked(String routeId) {
                 } catch (Exception e) {
                     Log.w(TAG, "Failed to clear communication device for Bluetooth media route", e);
                 }
+
                 return;
             }
 

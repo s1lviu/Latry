@@ -48,7 +48,6 @@
         <activity
             android:name="yo6say.latry.LatryActivity"
             android:configChanges="orientation|uiMode|screenLayout|screenSize|smallestScreenSize|layoutDirection|locale|fontScale|keyboard|keyboardHidden|navigation|mcc|mnc|density"
-            android:windowLightStatusBar="true"
             android:launchMode="singleTop"
             android:screenOrientation="portrait"
             android:theme="@style/NormalTheme"
