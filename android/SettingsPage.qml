@@ -242,6 +242,7 @@ Page {
                 delegate: Button {
                     required property var modelData
                     Layout.fillWidth: true
+                    implicitWidth: 300
                     text: modelData["name"] || ""
                     onClicked: {
                         SppPttController.selectSppDevice(modelData["name"], modelData["address"])

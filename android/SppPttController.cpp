@@ -160,6 +160,8 @@ void SppPttController::startBridgeIfNeeded()
                     m_reflectorClient, &ReflectorClient::pttPressed);
             connect(m_bridge, &SppPttBridge::pttButtonReleased,
                     m_reflectorClient, &ReflectorClient::pttReleased);
+            connect(m_bridge, &SppPttBridge::learningComplete,
+                    this, &SppPttController::onLearningComplete);
         }
     }
 
@@ -182,9 +184,11 @@ void SppPttController::onHardwarePttLearningActiveChanged()
     if (!m_reflectorClient) return;
 
     if (m_reflectorClient->hardwarePttLearningActive()) {
-        // Only stop bridge if no device is selected yet
         if (m_deviceAddress.isEmpty()) {
             stopBridge();
+        } else if (m_bridge) {
+            // Device already selected – start learning mode on bridge
+            m_bridge->startLearning();
         }
     } else {
         loadLearnedDevice();
@@ -250,4 +254,41 @@ void SppPttController::selectSppDevice(const QString &name, const QString &addre
 
     emit learnedSppDeviceChanged();
     startBridgeIfNeeded();
+}
+
+void SppPttController::onLearningComplete(const QString &press, const QString &release)
+{
+    qDebug() << "SppPttController: learning complete press=[" << press << "] release=[" << release << "]";
+
+    m_pressPattern  = press;
+    m_releasePattern = release;
+
+#if defined(Q_OS_ANDROID)
+    QJniObject activity = safeGetContext();
+    if (activity.isValid()) {
+        QJniObject jName    = QJniObject::fromString(m_deviceName);
+        QJniObject jAddress = QJniObject::fromString(m_deviceAddress);
+        QJniObject jPress   = QJniObject::fromString(press);
+        QJniObject jRelease = QJniObject::fromString(release);
+        QJniObject::callStaticMethod<void>(
+            "yo6say/latry/HardwarePttSettingsStore",
+            "setLearnedSppDevice",
+            "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+            activity.object<jobject>(),
+            jName.object<jstring>(),
+            jAddress.object<jstring>(),
+            jPress.object<jstring>(),
+            jRelease.object<jstring>());
+    }
+#endif
+
+    // Update bridge with learned patterns
+    m_bridge->selectDevice(m_deviceName, m_deviceAddress, press, release);
+
+    // Cancel learning mode in ReflectorClient
+    if (m_reflectorClient) {
+        m_reflectorClient->cancelHardwarePttLearning();
+    }
+
+    emit learnedSppDeviceChanged();
 }

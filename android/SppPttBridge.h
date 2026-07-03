@@ -69,6 +69,8 @@ public:
 
     // Optional: lets the settings UI test the wiring without the real button
     Q_INVOKABLE void simulatePtt(bool pressed);
+    Q_INVOKABLE void startLearning();
+    Q_INVOKABLE void stopLearning();
 
 signals:
     void enabledChanged();
@@ -81,6 +83,7 @@ signals:
     // Connect these to ReflectorClient::pttPressed()/pttReleased() in main.cpp
     void pttButtonPressed();
     void pttButtonReleased();
+    void learningComplete(const QString &pressPattern, const QString &releasePattern);
 
 private slots:
     void onSocketConnected();
@@ -98,11 +101,13 @@ private:
 
     bool m_enabled = false;
     bool m_scanning = false;
+    bool    m_learning = false;
     QString m_status = QStringLiteral("Disabled");
     QString m_deviceName;
     QString m_deviceAddress;
     QString m_pressPattern;
     QString m_releasePattern;
+    QString m_learnedPress;
 
     QBluetoothSocket *m_socket = nullptr;
     QBluetoothDeviceDiscoveryAgent *m_discoveryAgent = nullptr;

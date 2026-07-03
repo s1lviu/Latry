@@ -50,6 +50,7 @@ signals:
 private slots:
     void onHardwarePttSettingsChanged();
     void onHardwarePttLearningActiveChanged();
+    void onLearningComplete(const QString &press, const QString &release);
 
 private:
     void loadLearnedDevice();

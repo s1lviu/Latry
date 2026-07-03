@@ -251,6 +251,20 @@ void SppPttBridge::onSocketError(QBluetoothSocket::SocketError error)
     setStatus(QStringLiteral("Bluetooth error: %1").arg(m_socket ? m_socket->errorString() : QString()));
 }
 
+void SppPttBridge::startLearning()
+{
+    m_learning    = true;
+    m_learnedPress.clear();
+    qDebug() << "SppPttBridge: learning mode started";
+}
+ 
+void SppPttBridge::stopLearning()
+{
+    m_learning = false;
+    m_learnedPress.clear();
+    qDebug() << "SppPttBridge: learning mode stopped";
+}
+
 void SppPttBridge::onSocketReadyRead()
 {
     if (!m_socket)
@@ -266,9 +280,26 @@ void SppPttBridge::onSocketReadyRead()
         processLine(line);
     }
 
-    // The Inrico B02 in practice sends "+PTT=P" / "+PTT=R" with NO trailing
-    // newline at all, so we also scan the raw buffer directly for these
-    // patterns and consume up to and including the match.
+    // Learning mode: capture press and release patterns
+    if (m_learning && !m_rxBuffer.isEmpty()) {
+        const QString chunk = QString::fromUtf8(m_rxBuffer).trimmed();
+        if (!chunk.isEmpty()) {
+            if (m_learnedPress.isEmpty()) {
+                // First data = press pattern
+                m_learnedPress = chunk;
+                qDebug() << "SppPttBridge: learned press pattern:" << m_learnedPress;
+            } else if (chunk != m_learnedPress) {
+                // Second distinct data = release pattern
+                qDebug() << "SppPttBridge: learned release pattern:" << chunk;
+                m_learning = false;
+                emit learningComplete(m_learnedPress, chunk);
+                m_learnedPress.clear();
+            }
+        }
+        m_rxBuffer.clear();
+        return;
+    }
+ 
     const QByteArray lowerBuf    = m_rxBuffer.toLower();
     const QByteArray lowerPress   = m_pressPattern.toLower().toUtf8();
     const QByteArray lowerRelease = m_releasePattern.toLower().toUtf8();
