@@ -244,7 +244,7 @@ Page {
                 id: deviceRepeater
                 model: SppPttController.pairedSppDevices
                 delegate: Button {
-                    width: parent.width
+                    Layout.fillWidth: true
                     text: "Device " + index
                     onClicked: {
                         pttLearningDialog.close()
