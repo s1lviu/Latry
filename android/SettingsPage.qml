@@ -239,12 +239,12 @@ Page {
             Label {
                 text: "Devices: " + SppPttController.pairedSppDevices.length
             }
-            
+
             Repeater {
                 model: SppPttController.pairedSppDevices
-                delegate: ItemDelegate {
-                    Layout.fillWidth: true
-                    text: modelData["name"] || ""
+                delegate: Button {
+                    width: parent.width
+                    text: modelData["name"] !== undefined ? modelData["name"] : "unknown"
                     onClicked: {
                         SppPttController.selectSppDevice(modelData["name"], modelData["address"])
                         pttLearningDialog.close()
