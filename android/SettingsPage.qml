@@ -231,7 +231,7 @@ Page {
 
             Label {
                 Layout.fillWidth: true
-                text: qsTr("Press button OR select device")
+                text: qsTr("Press a hardware button, or press the PTT button on a paired Bluetooth device.")
                 wrapMode: Text.WordWrap
                 horizontalAlignment: Text.AlignHCenter
             }
@@ -239,21 +239,6 @@ Page {
             BusyIndicator {
                 Layout.alignment: Qt.AlignHCenter
                 running: page.reflectorClient.hardwarePttLearningActive
-            }
-
-            Repeater {
-                id: deviceRepeater
-                model: SppPttController.pairedSppDevices
-                delegate: Button {
-                    required property var modelData
-                    Layout.fillWidth: true
-                    implicitWidth: 300
-                    text: modelData["name"] || ""
-                    onClicked: {
-                        SppPttController.selectSppDevice(modelData["name"], modelData["address"])
-                        pttLearningDialog.close()
-                    }
-                }
             }
 
             Label {
@@ -1537,7 +1522,6 @@ Page {
                                             Accessible.description: qsTr("Press this, then press the physical button you want to use as PTT")
                                             onClicked: {
                                                 page.reflectorClient.startHardwarePttLearning()
-                                                SppPttController.refreshPairedDevices()
                                                 pttLearningDialog.open()
                                             }
                                         }

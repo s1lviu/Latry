@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026
+ * Copyright (C) 2025 Silviu YO6SAY
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,9 +18,9 @@
 #  include <QFutureWatcher>
 #endif
 
-// Standard Serial Port Profile UUID - the Inrico B02 exposes an SPP RFCOMM
-// channel using this UUID once paired.
-static const QBluetoothUuid kSppUuid(QStringLiteral("00001101-0000-1000-8000-00805F9B34FB"));
+// Standard Serial Port Profile UUID
+static const QBluetoothUuid kSppUuid(
+        QStringLiteral("00001101-0000-1000-8000-00805F9B34FB"));
 
 SppPttBridge::SppPttBridge(QObject *parent)
     : QObject(parent)
@@ -29,9 +29,6 @@ SppPttBridge::SppPttBridge(QObject *parent)
 
 SppPttBridge::~SppPttBridge()
 {
-    if (m_discoveryAgent) {
-        m_discoveryAgent->stop();
-    }
     if (m_socket) {
         m_socket->close();
     }
@@ -48,88 +45,66 @@ void SppPttBridge::setEnabled(bool on)
     if (m_enabled) {
         connectToSavedDevice();
     } else {
-        disconnectDevice();
+        if (m_socket) {
+            m_socket->disconnect();
+            m_socket->close();
+            m_socket->deleteLater();
+            m_socket = nullptr;
+            emit connectedChanged();
+        }
+        m_rxBuffer.clear();
         setStatus(QStringLiteral("Disabled"));
     }
 }
 
 bool SppPttBridge::isConnected() const
 {
-    return m_socket && m_socket->state() == QBluetoothSocket::SocketState::ConnectedState;
+    return m_socket
+           && m_socket->state() == QBluetoothSocket::SocketState::ConnectedState;
 }
 
-void SppPttBridge::startScan()
-{
-    if (m_scanning)
-        return;
-
-    m_discoveredDevices.clear();
-    emit discoveredDevicesChanged();
-
-    if (!m_discoveryAgent) {
-        m_discoveryAgent = new QBluetoothDeviceDiscoveryAgent(this);
-        connect(m_discoveryAgent, &QBluetoothDeviceDiscoveryAgent::deviceDiscovered,
-                this, &SppPttBridge::onDeviceDiscovered);
-        connect(m_discoveryAgent, &QBluetoothDeviceDiscoveryAgent::finished,
-                this, &SppPttBridge::onDiscoveryFinished);
-        connect(m_discoveryAgent, &QBluetoothDeviceDiscoveryAgent::canceled,
-                this, &SppPttBridge::onDiscoveryFinished);
-    }
-
-    m_scanning = true;
-    emit scanningChanged();
-    setStatus(QStringLiteral("Scanning for Bluetooth devices..."));
-    m_discoveryAgent->start(QBluetoothDeviceDiscoveryAgent::ClassicMethod);
-}
-
-void SppPttBridge::stopScan()
-{
-    if (m_discoveryAgent) {
-        m_discoveryAgent->stop();
-    }
-}
-
-void SppPttBridge::onDeviceDiscovered(const QBluetoothDeviceInfo &info)
-{
-    // Only list classic (SPP-capable) devices - the B02 is not BLE.
-    if (info.coreConfigurations() & QBluetoothDeviceInfo::LowEnergyCoreConfiguration
-        && !(info.coreConfigurations() & QBluetoothDeviceInfo::BaseRateCoreConfiguration)) {
-        return;
-    }
-
-    QVariantMap entry;
-    entry["name"] = info.name();
-    entry["address"] = info.address().toString();
-    m_discoveredDevices.append(entry);
-    emit discoveredDevicesChanged();
-}
-
-void SppPttBridge::onDiscoveryFinished()
-{
-    m_scanning = false;
-    emit scanningChanged();
-    setStatus(m_discoveredDevices.isEmpty()
-                  ? QStringLiteral("No devices found")
-                  : QStringLiteral("Scan finished - select a device"));
-}
-
-void SppPttBridge::selectDevice(const QString &name, const QString &address,
+void SppPttBridge::selectDevice(const QString &name,
+                                const QString &address,
                                 const QString &pressPattern,
                                 const QString &releasePattern)
 {
     m_deviceName    = name;
     m_deviceAddress = address;
- 
+
     // Use provided patterns, or fall back to the Zello/Inrico B02 defaults
-    // if none are given (backwards compatibility).
-    m_pressPattern   = pressPattern.isEmpty()   ? QStringLiteral("+ptt=p")   : pressPattern;
-    m_releasePattern = releasePattern.isEmpty() ? QStringLiteral("+ptt=r") : releasePattern;
- 
+    // if none are given (backwards compatibility with devices using this protocol).
+    m_pressPattern   = pressPattern.isEmpty()
+                       ? QStringLiteral("+ptt=p") : pressPattern;
+    m_releasePattern = releasePattern.isEmpty()
+                       ? QStringLiteral("+ptt=r") : releasePattern;
+
     emit pairedDeviceChanged();
- 
+
     if (m_enabled) {
         connectToSavedDevice();
     }
+}
+
+void SppPttBridge::simulatePtt(bool pressed)
+{
+    if (pressed)
+        emit pttButtonPressed();
+    else
+        emit pttButtonReleased();
+}
+
+void SppPttBridge::startLearning()
+{
+    m_learning = true;
+    m_learnedPress.clear();
+    qDebug() << "SppPttBridge: learning mode started";
+}
+
+void SppPttBridge::stopLearning()
+{
+    m_learning = false;
+    m_learnedPress.clear();
+    qDebug() << "SppPttBridge: learning mode stopped";
 }
 
 void SppPttBridge::connectToSavedDevice()
@@ -141,45 +116,39 @@ void SppPttBridge::connectToSavedDevice()
 
 #if defined(Q_OS_ANDROID)
     // Android 12+ (API 31+) requires runtime grant of BLUETOOTH_CONNECT and
-    // BLUETOOTH_SCAN (the latter is needed because connectToService() with a
-    // UUID performs an SDP service discovery), even though both are
-    // declared in the manifest. requestPermissions() (plural) is not
-    // linkable in this Qt build, so we request them sequentially using the
-    // singular requestPermission(), same pattern as RECORD_AUDIO elsewhere.
+    // BLUETOOTH_SCAN even though both are declared in the manifest.
     const QString connectPerm = QStringLiteral("android.permission.BLUETOOTH_CONNECT");
-    const QString scanPerm = QStringLiteral("android.permission.BLUETOOTH_SCAN");
+    const QString scanPerm    = QStringLiteral("android.permission.BLUETOOTH_SCAN");
 
-    if (QtAndroidPrivate::checkPermission(connectPerm).result() == QtAndroidPrivate::PermissionResult::Denied) {
+    if (QtAndroidPrivate::checkPermission(connectPerm).result()
+            == QtAndroidPrivate::PermissionResult::Denied) {
         setStatus(QStringLiteral("Requesting Bluetooth permission..."));
-        auto future = QtAndroidPrivate::requestPermission(connectPerm);
+        auto future  = QtAndroidPrivate::requestPermission(connectPerm);
         auto *watcher = new QFutureWatcher<QtAndroidPrivate::PermissionResult>(this);
         connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher]() {
             auto result = watcher->result();
             QMetaObject::invokeMethod(watcher, "deleteLater", Qt::QueuedConnection);
-            if (result == QtAndroidPrivate::PermissionResult::Authorized) {
-                connectToSavedDevice(); // re-enter to check/request BLUETOOTH_SCAN next
-            } else {
-                qWarning() << "BLUETOOTH_CONNECT denied by user";
+            if (result == QtAndroidPrivate::PermissionResult::Authorized)
+                connectToSavedDevice();
+            else
                 setStatus(QStringLiteral("Bluetooth permission denied"));
-            }
         });
         watcher->setFuture(future);
         return;
     }
 
-    if (QtAndroidPrivate::checkPermission(scanPerm).result() == QtAndroidPrivate::PermissionResult::Denied) {
+    if (QtAndroidPrivate::checkPermission(scanPerm).result()
+            == QtAndroidPrivate::PermissionResult::Denied) {
         setStatus(QStringLiteral("Requesting Bluetooth scan permission..."));
-        auto future = QtAndroidPrivate::requestPermission(scanPerm);
+        auto future  = QtAndroidPrivate::requestPermission(scanPerm);
         auto *watcher = new QFutureWatcher<QtAndroidPrivate::PermissionResult>(this);
         connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher]() {
             auto result = watcher->result();
             QMetaObject::invokeMethod(watcher, "deleteLater", Qt::QueuedConnection);
-            if (result == QtAndroidPrivate::PermissionResult::Authorized) {
+            if (result == QtAndroidPrivate::PermissionResult::Authorized)
                 doConnectSocket();
-            } else {
-                qWarning() << "BLUETOOTH_SCAN denied by user";
+            else
                 setStatus(QStringLiteral("Bluetooth permission denied"));
-            }
         });
         watcher->setFuture(future);
         return;
@@ -191,37 +160,27 @@ void SppPttBridge::connectToSavedDevice()
 
 void SppPttBridge::doConnectSocket()
 {
-    disconnectDevice();
-
-    m_socket = new QBluetoothSocket(QBluetoothServiceInfo::RfcommProtocol, this);
-
-    connect(m_socket, &QBluetoothSocket::connected, this, &SppPttBridge::onSocketConnected);
-    connect(m_socket, &QBluetoothSocket::disconnected, this, &SppPttBridge::onSocketDisconnected);
-    connect(m_socket, &QBluetoothSocket::readyRead, this, &SppPttBridge::onSocketReadyRead);
-    connect(m_socket, &QBluetoothSocket::errorOccurred, this, &SppPttBridge::onSocketError);
-
-    setStatus(QStringLiteral("Connecting to %1...").arg(m_deviceName));
-    m_socket->connectToService(QBluetoothAddress(m_deviceAddress), kSppUuid,
-                                QIODevice::ReadWrite);
-}
-
-void SppPttBridge::reconnect()
-{
-    if (m_enabled) {
-        connectToSavedDevice();
-    }
-}
-
-void SppPttBridge::disconnectDevice()
-{
     if (m_socket) {
         m_socket->disconnect();
         m_socket->close();
         m_socket->deleteLater();
         m_socket = nullptr;
-        emit connectedChanged();
     }
     m_rxBuffer.clear();
+
+    m_socket = new QBluetoothSocket(QBluetoothServiceInfo::RfcommProtocol, this);
+    connect(m_socket, &QBluetoothSocket::connected,
+            this, &SppPttBridge::onSocketConnected);
+    connect(m_socket, &QBluetoothSocket::disconnected,
+            this, &SppPttBridge::onSocketDisconnected);
+    connect(m_socket, &QBluetoothSocket::readyRead,
+            this, &SppPttBridge::onSocketReadyRead);
+    connect(m_socket, &QBluetoothSocket::errorOccurred,
+            this, &SppPttBridge::onSocketError);
+
+    setStatus(QStringLiteral("Connecting to %1...").arg(m_deviceName));
+    m_socket->connectToService(QBluetoothAddress(m_deviceAddress),
+                               kSppUuid, QIODevice::ReadWrite);
 }
 
 void SppPttBridge::onSocketConnected()
@@ -235,12 +194,11 @@ void SppPttBridge::onSocketDisconnected()
     setStatus(QStringLiteral("Disconnected"));
     emit connectedChanged();
 
-    // Auto-retry after a short delay if still enabled (e.g. B02 went out of range)
+    // Auto-retry after a short delay if still enabled
     if (m_enabled) {
         QTimer::singleShot(5000, this, [this]() {
-            if (m_enabled && !isConnected()) {
+            if (m_enabled && !isConnected())
                 connectToSavedDevice();
-            }
         });
     }
 }
@@ -248,21 +206,8 @@ void SppPttBridge::onSocketDisconnected()
 void SppPttBridge::onSocketError(QBluetoothSocket::SocketError error)
 {
     Q_UNUSED(error)
-    setStatus(QStringLiteral("Bluetooth error: %1").arg(m_socket ? m_socket->errorString() : QString()));
-}
-
-void SppPttBridge::startLearning()
-{
-    m_learning    = true;
-    m_learnedPress.clear();
-    qDebug() << "SppPttBridge: learning mode started";
-}
- 
-void SppPttBridge::stopLearning()
-{
-    m_learning = false;
-    m_learnedPress.clear();
-    qDebug() << "SppPttBridge: learning mode stopped";
+    setStatus(QStringLiteral("Bluetooth error: %1")
+              .arg(m_socket ? m_socket->errorString() : QString()));
 }
 
 void SppPttBridge::onSocketReadyRead()
@@ -272,7 +217,29 @@ void SppPttBridge::onSocketReadyRead()
 
     m_rxBuffer.append(m_socket->readAll());
 
-    // The B02 sends newline-terminated ASCII commands like "+ptt=p\r\n"
+    // Learning mode: capture the first chunk as press pattern, the next
+    // distinct chunk as release pattern, then emit learningComplete.
+    // This runs before normal pattern matching so that the raw data is
+    // captured before any transformation.
+    if (m_learning && !m_rxBuffer.isEmpty()) {
+        const QString chunk = QString::fromUtf8(m_rxBuffer).trimmed();
+        m_rxBuffer.clear();
+
+        if (!chunk.isEmpty()) {
+            if (m_learnedPress.isEmpty()) {
+                m_learnedPress = chunk;
+                qDebug() << "SppPttBridge: learned press pattern:" << m_learnedPress;
+            } else if (chunk != m_learnedPress) {
+                qDebug() << "SppPttBridge: learned release pattern:" << chunk;
+                m_learning = false;
+                emit learningComplete(m_learnedPress, chunk);
+                m_learnedPress.clear();
+            }
+        }
+        return;
+    }
+
+    // Normal operation: try newline-delimited protocol first
     int idx;
     while ((idx = m_rxBuffer.indexOf('\n')) >= 0) {
         QByteArray line = m_rxBuffer.left(idx);
@@ -280,30 +247,12 @@ void SppPttBridge::onSocketReadyRead()
         processLine(line);
     }
 
-    // Learning mode: capture press and release patterns
-    if (m_learning && !m_rxBuffer.isEmpty()) {
-        const QString chunk = QString::fromUtf8(m_rxBuffer).trimmed();
-        if (!chunk.isEmpty()) {
-            if (m_learnedPress.isEmpty()) {
-                // First data = press pattern
-                m_learnedPress = chunk;
-                qDebug() << "SppPttBridge: learned press pattern:" << m_learnedPress;
-            } else if (chunk != m_learnedPress) {
-                // Second distinct data = release pattern
-                qDebug() << "SppPttBridge: learned release pattern:" << chunk;
-                m_learning = false;
-                emit learningComplete(m_learnedPress, chunk);
-                m_learnedPress.clear();
-            }
-        }
-        m_rxBuffer.clear();
-        return;
-    }
- 
-    const QByteArray lowerBuf    = m_rxBuffer.toLower();
+    // Fallback: scan raw buffer for patterns without a newline delimiter
+    // (e.g. Inrico B02 sends "+PTT=P" / "+PTT=R" without trailing newline)
+    const QByteArray lowerBuf     = m_rxBuffer.toLower();
     const QByteArray lowerPress   = m_pressPattern.toLower().toUtf8();
     const QByteArray lowerRelease = m_releasePattern.toLower().toUtf8();
- 
+
     if (!lowerPress.isEmpty()) {
         int pIdx = lowerBuf.indexOf(lowerPress);
         if (pIdx >= 0) {
@@ -320,37 +269,24 @@ void SppPttBridge::onSocketReadyRead()
         }
     }
 
-    // Avoid unbounded growth if we never find a delimiter/pattern.
-    if (m_rxBuffer.size() > 256) {
+    // Avoid unbounded buffer growth
+    if (m_rxBuffer.size() > 256)
         m_rxBuffer.clear();
-    }
 }
 
 void SppPttBridge::processLine(const QByteArray &rawLine)
 {
-    QByteArray line = rawLine.trimmed().toLower();
+    const QByteArray line = rawLine.trimmed().toLower();
     if (line.isEmpty())
         return;
-
-    qDebug() << "SppPttBridge: received" << line;
 
     const QByteArray lowerPress   = m_pressPattern.toLower().toUtf8();
     const QByteArray lowerRelease = m_releasePattern.toLower().toUtf8();
 
-    if (!lowerPress.isEmpty() && line.contains(lowerPress)) {
+    if (!lowerPress.isEmpty() && line.contains(lowerPress))
         emit pttButtonPressed();
-    } else if (!lowerRelease.isEmpty() && line.contains(lowerRelease)) {
+    else if (!lowerRelease.isEmpty() && line.contains(lowerRelease))
         emit pttButtonReleased();
-    }
-}
-
-void SppPttBridge::simulatePtt(bool pressed)
-{
-    if (pressed) {
-        emit pttButtonPressed();
-    } else {
-        emit pttButtonReleased();
-    }
 }
 
 void SppPttBridge::setStatus(const QString &status)

@@ -12,9 +12,7 @@
 #include "ReflectorClient.h"
 #include <QDebug>
 #include <QJsonDocument>
-#include <QJsonArray>
 #include <QJsonObject>
-#include <QVariantMap>
 
 #if defined(Q_OS_ANDROID)
 #  include <QtCore/private/qandroidextras_p.h>
@@ -175,6 +173,41 @@ void SppPttController::startBridgeIfNeeded()
     }
 }
 
+void SppPttController::autoConnectSppDevice()
+{
+#if defined(Q_OS_ANDROID)
+    QJniObject activity = safeGetContext();
+    if (!activity.isValid()) return;
+
+    QJniObject json = QJniObject::callStaticObjectMethod(
+        "yo6say/latry/SppDeviceHelper",
+        "getFirstConnectedSppDeviceJson",
+        "(Landroid/content/Context;)Ljava/lang/String;",
+        activity.object<jobject>());
+
+    if (!json.isValid() || json.toString().isEmpty()) {
+        qDebug() << "SppPttController: no connected SPP device found";
+        return;
+    }
+
+    QJsonDocument doc = QJsonDocument::fromJson(json.toString().toUtf8());
+    QJsonObject obj = doc.object();
+    QString name    = obj["name"].toString();
+    QString address = obj["address"].toString();
+
+    if (address.isEmpty()) return;
+
+    qDebug() << "SppPttController: auto-connecting to SPP device:" << name;
+    m_deviceName    = name;
+    m_deviceAddress = address;
+    m_pressPattern.clear();
+    m_releasePattern.clear();
+    emit learnedSppDeviceChanged();
+    startBridgeIfNeeded();
+#endif
+}
+
+
 void SppPttController::stopBridge()
 {
     if (m_bridge) {
@@ -191,54 +224,14 @@ void SppPttController::onHardwarePttLearningActiveChanged()
     if (m_reflectorClient->hardwarePttLearningActive()) {
         if (m_deviceAddress.isEmpty()) {
             stopBridge();
+            autoConnectSppDevice();
         } else if (m_bridge) {
-            // Device already selected – start learning mode on bridge
             m_bridge->startLearning();
         }
     } else {
         loadLearnedDevice();
         startBridgeIfNeeded();
     }
-}
-
-void SppPttController::refreshPairedDevices()
-{
-#if defined(Q_OS_ANDROID)
-    QJniObject activity = safeGetContext();
-    if (!activity.isValid()) return;
-
-    QJniObject json = QJniObject::callStaticObjectMethod(
-        "yo6say/latry/SppDeviceHelper",
-        "getPairedClassicDevicesJson",
-        "(Landroid/content/Context;)Ljava/lang/String;",
-        activity.object<jobject>());
-
-    if (!json.isValid()) return;
-
-    QJsonArray arr = QJsonDocument::fromJson(
-        json.toString().toUtf8()).array();
-
-    m_pairedDevices.clear();
-    
-    for (const QJsonValue &v : arr) {
-        QVariantMap entry;
-        entry["name"]    = v["name"].toString();
-        entry["address"] = v["address"].toString();
-        m_pairedDevices.append(entry);
-    }
-    emit pairedSppDevicesChanged();
-#endif
-}
-
-void SppPttController::selectSppDevice(const QString &name, const QString &address)
-{
-    m_deviceName    = name;
-    m_deviceAddress = address;
-    m_pressPattern.clear();
-    m_releasePattern.clear();
-
-    emit learnedSppDeviceChanged();
-    startBridgeIfNeeded();
 }
 
 void SppPttController::onLearningComplete(const QString &press, const QString &release)
