@@ -231,18 +231,18 @@ Page {
 
             Label {
                 Layout.fillWidth: true
-                text: qsTr("Push button directly or choose device from list.")
+                text: qsTr("Press a hardware button, or select a paired Bluetooth device below.")
                 wrapMode: Text.WordWrap
                 horizontalAlignment: Text.AlignHCenter
             }
 
             Repeater {
                 model: SppPttController.pairedSppDevices
-                delegate: Button {
+                delegate: ItemDelegate {
                     Layout.fillWidth: true
-                    text: modelData.name
+                    text: modelData["name"] || ""
                     onClicked: {
-                        SppPttController.selectSppDevice(modelData.name, modelData.address)
+                        SppPttController.selectSppDevice(modelData["name"], modelData["address"])
                         pttLearningDialog.close()
                     }
                 }

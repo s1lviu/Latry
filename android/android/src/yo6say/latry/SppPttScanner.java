@@ -8,7 +8,6 @@ import android.content.pm.PackageManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
-import android.widget.Toast;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -17,6 +16,17 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+/**
+ * Scans paired Classic Bluetooth SPP devices during PTT learning mode.
+ *
+ * Connects to all paired Classic BT devices in parallel. The first device
+ * that sends any data "wins". We then intelligently split the received data
+ * into press and release patterns, handling both cases:
+ *
+ * Case A: Press and release arrive in separate read() calls.
+ * Case B: Press and release arrive in the same read() call (common when
+ *   the user taps quickly, or RFCOMM buffers both before we read).
+ */
 final class SppPttScanner {
     interface Callback {
         void onSppPttDeviceDetected(String name, String address,
@@ -37,44 +47,35 @@ final class SppPttScanner {
 
     static boolean startScanning(Context context, Callback callback) {
         if (scanning) {
-            toast(context, "SPP: Already scanning");
+            Log.w(TAG, "Already scanning");
             return false;
         }
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
             if (context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
                     != PackageManager.PERMISSION_GRANTED) {
-                toast(context, "SPP: No BLUETOOTH_CONNECT permission!");
+                Log.w(TAG, "BLUETOOTH_CONNECT not granted");
                 return false;
             }
         }
 
         final BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
         if (adapter == null || !adapter.isEnabled()) {
-            toast(context, "SPP: Bluetooth unavailable!");
+            Log.w(TAG, "Bluetooth unavailable");
             return false;
         }
 
         final Set<BluetoothDevice> paired = adapter.getBondedDevices();
         if (paired == null || paired.isEmpty()) {
-            toast(context, "SPP: No paired devices!");
+            Log.w(TAG, "No paired devices");
             return false;
         }
 
-        int classicCount = 0;
-        for (BluetoothDevice d : paired) {
-            if (d.getType() != BluetoothDevice.DEVICE_TYPE_LE) classicCount++;
-        }
-
-        toast(context, "SPP: Scanning " + classicCount + " Classic BT device(s)...");
         scanning = true;
         executor = Executors.newCachedThreadPool();
 
         for (final BluetoothDevice device : paired) {
-            if (device.getType() == BluetoothDevice.DEVICE_TYPE_LE) {
-                Log.d(TAG, "Skipping LE device: " + device.getName());
-                continue;
-            }
+            if (device.getType() == BluetoothDevice.DEVICE_TYPE_LE) continue;
 
             final String name    = device.getName() != null ? device.getName() : "Unknown";
             final String address = device.getAddress();
@@ -82,6 +83,7 @@ final class SppPttScanner {
             executor.submit(() -> probeDevice(context, device, name, address, callback));
         }
 
+        Log.i(TAG, "SPP scanning started for " + paired.size() + " device(s)");
         return true;
     }
 
@@ -104,17 +106,16 @@ final class SppPttScanner {
                                     Callback callback) {
         BluetoothSocket socket = null;
         try {
-            toast(context, "SPP: Connecting to " + name + "...");
             socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
             socket.connect();
 
             if (!scanning) return;
-            toast(context, "SPP: Connected to " + name + " – press PTT!");
+            Log.i(TAG, "Connected to " + name + " – waiting for PTT...");
 
             learnPatterns(context, socket, name, address, callback);
 
         } catch (IOException e) {
-            toast(context, "SPP: Cannot connect to " + name + ": " + e.getMessage());
+            Log.d(TAG, "Cannot connect to " + name + ": " + e.getMessage());
         } finally {
             if (socket != null) {
                 try { socket.close(); } catch (IOException ignored) {}
@@ -145,6 +146,7 @@ final class SppPttScanner {
                 int n = stream.read(buf, 0, Math.min(stream.available(), buf.length));
                 if (n <= 0) continue;
 
+                // Wait briefly for any immediately following bytes
                 Thread.sleep(SPLIT_WAIT_MS);
                 if (stream.available() > 0) {
                     int n2 = stream.read(buf, n, Math.min(stream.available(), buf.length - n));
@@ -152,34 +154,33 @@ final class SppPttScanner {
                 }
 
                 final String chunk = new String(buf, 0, n);
-                toast(context, "SPP: Got [" + chunk + "]");
+                Log.d(TAG, "Received from " + name + ": [" + chunk + "]");
 
                 if (pressPattern == null) {
                     String[] parts = splitPressRelease(chunk);
                     pressPattern = parts[0];
-                    toast(context, "SPP: Press=[" + pressPattern + "]");
+                    Log.i(TAG, "Press pattern: [" + pressPattern + "]");
 
                     if (parts[1] != null && !parts[1].isEmpty()
                             && !parts[1].equals(pressPattern)) {
                         releasePattern = parts[1];
-                        toast(context, "SPP: Release=[" + releasePattern + "] DONE!");
+                        Log.i(TAG, "Release pattern (same chunk): [" + releasePattern + "]");
                         onDetected(context, name, address,
                                    pressPattern, releasePattern, callback);
                         return;
                     }
-                    toast(context, "SPP: Now release PTT...");
 
                 } else {
                     String[] parts = splitPressRelease(chunk);
                     String candidate = parts[0];
 
                     if (candidate.equals(pressPattern)) {
-                        toast(context, "SPP: Got press again, waiting for release...");
+                        Log.d(TAG, "Got press again, waiting for release...");
                         continue;
                     }
 
                     releasePattern = candidate;
-                    toast(context, "SPP: Release=[" + releasePattern + "] DONE!");
+                    Log.i(TAG, "Release pattern: [" + releasePattern + "]");
                     onDetected(context, name, address,
                                pressPattern, releasePattern, callback);
                     return;
@@ -187,14 +188,12 @@ final class SppPttScanner {
             }
 
             if (pressPattern != null && scanning) {
-                toast(context, "SPP: Timeout, saving with empty release");
+                Log.w(TAG, "No release pattern received, saving with empty release");
                 onDetected(context, name, address, pressPattern, "", callback);
-            } else if (scanning) {
-                toast(context, "SPP: Timeout, no data received from " + name);
             }
 
         } catch (IOException | InterruptedException e) {
-            if (scanning) toast(context, "SPP: Error: " + e.getMessage());
+            if (scanning) Log.d(TAG, "Error: " + e.getMessage());
         }
     }
 
@@ -231,14 +230,10 @@ final class SppPttScanner {
 
         HardwarePttSettingsStore.setLearnedSppDevice(
                 context, name, address, press, release);
+        Log.i(TAG, "Learned SPP device: " + name
+                + " press=[" + press + "] release=[" + release + "]");
 
         mainHandler.post(() ->
                 callback.onSppPttDeviceDetected(name, address, press, release));
-    }
-
-    private static void toast(Context context, String msg) {
-        Log.i(TAG, msg);
-        mainHandler.post(() ->
-                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show());
     }
 }
