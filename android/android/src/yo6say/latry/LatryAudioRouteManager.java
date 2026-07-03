@@ -627,7 +627,6 @@ private static AudioDeviceInfo findPlaybackDeviceLocked(String routeId) {
                         && appContext != null) {
                     String productName = normalizedRoute.substring(
                             LatryAudioRoutePolicy.ROUTE_BLUETOOTH_PREFIX.length());
-                    BluetoothA2dpRouter.setActiveDeviceByProductName(appContext, productName);
                 }
                 return;
             }
