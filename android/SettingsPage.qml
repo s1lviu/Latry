@@ -238,7 +238,7 @@ Page {
 
             BusyIndicator {
                 Layout.alignment: Qt.AlignHCenter
-                running: pttLearningDialog.opened
+                running: page.reflectorClient.hardwarePttLearningActive
             }
 
             Repeater {
