@@ -25,11 +25,16 @@ final class LatryAudioRoutePolicy {
             return ROUTE_SPEAKER;
         }
 
-        String normalized = routeId.trim().toLowerCase();
+        String trimmed = routeId.trim();
+        String normalized = trimmed.toLowerCase();
         if (ROUTE_WIRED_HEADSET.equals(normalized)) {
             return normalized;
         }
         if (isBluetoothRoute(normalized)) {
+            // Preserve original casing for device name after "bluetooth:"
+            if (normalized.startsWith(ROUTE_BLUETOOTH_PREFIX)) {
+                return ROUTE_BLUETOOTH_PREFIX + trimmed.substring(ROUTE_BLUETOOTH_PREFIX.length());
+            }
             return normalized;
         }
         return ROUTE_SPEAKER;

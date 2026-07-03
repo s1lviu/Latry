@@ -1100,12 +1100,14 @@ Page {
                                     }
 
                                     Button {
-                                        Layout.alignment: Qt.AlignRight
-                                        text: parent.parent.current
-                                              ? qsTr("%1 active").arg(modelData.name)
-                                              : qsTr("Use %1").arg(modelData.name)
-                                        enabled: !parent.parent.current
-                                        Accessible.name: text
+                                        Layout.fillWidth: true
+                                        text: (parent.parent.preferred && parent.parent.current)
+                                              ? qsTr("Active") : qsTr("Use This Route")
+                                        enabled: !(parent.parent.preferred && parent.parent.current)
+                                                 && !page.reflectorClient.pttActive
+                                        Accessible.name: (parent.parent.preferred && parent.parent.current)
+                                                         ? qsTr("%1 active").arg(modelData.name)
+                                                         : qsTr("Use %1").arg(modelData.name)
                                         onClicked: page.audioRouteRequested(modelData.id)
                                     }
                                 }
