@@ -227,6 +227,27 @@ void SppPttController::selectSppDevice(const QString &name, const QString &addre
     m_deviceAddress = address;
     m_pressPattern.clear();
     m_releasePattern.clear();
+
+#if defined(Q_OS_ANDROID)
+    // Persist the selected device immediately
+    QJniObject activity = safeGetContext();
+    if (activity.isValid()) {
+        QJniObject jName = QJniObject::fromString(name);
+        QJniObject jAddress = QJniObject::fromString(address);
+        QJniObject jPress = QJniObject::fromString(QString("+PTT=P"));
+        QJniObject jRelease = QJniObject::fromString(QString("+PTT=R"));
+        QJniObject::callStaticMethod<void>(
+            "yo6say/latry/HardwarePttSettingsStore",
+            "setLearnedSppDevice",
+            "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+            activity.object<jobject>(),
+            jName.object<jstring>(),
+            jAddress.object<jstring>(),
+            jPress.object<jstring>(),
+            jRelease.object<jstring>());
+    }
+#endif
+
     emit learnedSppDeviceChanged();
     startBridgeIfNeeded();
 }
