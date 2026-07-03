@@ -241,12 +241,12 @@ Page {
             }
 
             Repeater {
+                id: deviceRepeater
                 model: SppPttController.pairedSppDevices
                 delegate: Button {
                     width: parent.width
-                    text: modelData["name"] !== undefined ? modelData["name"] : "unknown"
+                    text: "Device " + index
                     onClicked: {
-                        SppPttController.selectSppDevice(modelData["name"], modelData["address"])
                         pttLearningDialog.close()
                     }
                 }
