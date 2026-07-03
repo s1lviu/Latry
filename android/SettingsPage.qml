@@ -109,7 +109,7 @@ Page {
     function audioRouteDescription(routeId) {
         if (routeId === "wired_headset")
             return qsTr("Wired audio route")
-        if (routeId === "bluetooth")
+        if (routeId === "bluetooth" || routeId.startsWith("bluetooth:"))
             return qsTr("Bluetooth voice route")
         return qsTr("Speaker + Internal mic")
     }
