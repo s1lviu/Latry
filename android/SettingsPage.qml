@@ -236,6 +236,10 @@ Page {
                 horizontalAlignment: Text.AlignHCenter
             }
 
+            Label {
+                text: "Devices: " + SppPttController.pairedSppDevices.length
+            }
+            
             Repeater {
                 model: SppPttController.pairedSppDevices
                 delegate: ItemDelegate {
