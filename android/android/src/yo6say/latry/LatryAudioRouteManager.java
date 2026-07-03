@@ -16,6 +16,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import androidx.core.content.ContextCompat;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothProfile;
 
 public final class LatryAudioRouteManager {
     private static final String TAG = "LatryAudioRouteMgr";
