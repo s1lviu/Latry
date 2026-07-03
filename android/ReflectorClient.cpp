@@ -107,11 +107,17 @@ std::optional<QtAndroidPrivate::PermissionResult> permissionResultFromFuture(
 
 QString normalizeAudioRouteId(const QString &routeId)
 {
-    const QString normalized = routeId.trimmed().toLower();
+    const QString trimmed = routeId.trimmed();
+    const QString normalized = trimmed.toLower();
     if (normalized == kAudioRouteWiredHeadset) {
         return normalized;
     }
     if (isBluetoothRouteId(normalized)) {
+        // Preserve original casing for the device name part
+        if (trimmed.toLower().startsWith(kAudioRouteBluetoothPrefix)) {
+            return kAudioRouteBluetoothPrefix
+                   + trimmed.mid(kAudioRouteBluetoothPrefix.length());
+        }
         return normalized;
     }
     return kAudioRouteSpeaker;
