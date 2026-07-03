@@ -211,6 +211,13 @@ void SppPttController::refreshPairedDevices()
         json.toString().toUtf8()).array();
 
     m_pairedDevices.clear();
+    
+    // DEBUG: add test entry to verify QML list works
+    QVariantMap test;
+    test["name"]    = QString("Test Device");
+    test["address"] = QString("00:00:00:00:00:00");
+    m_pairedDevices.append(test);
+
     for (const QJsonValue &v : arr) {
         QVariantMap entry;
         entry["name"]    = v["name"].toString();
