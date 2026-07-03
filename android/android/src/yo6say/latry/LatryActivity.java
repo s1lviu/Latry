@@ -59,6 +59,7 @@ public class LatryActivity extends QtActivity {
     public void onCreate(Bundle savedInstanceState) {
         applyQtAccessibilityCrashWorkaroundIfNeeded();
         super.onCreate(savedInstanceState);
+        BluetoothA2dpRouter.init(this);
         appInitiatedShutdownRequested = false;
         currentActivityInstance = this;
         LatrySentry.addBreadcrumb("ui.lifecycle", "activity_created", io.sentry.SentryLevel.INFO);

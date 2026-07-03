@@ -320,6 +320,26 @@ public final class LatryAudioRouteManager {
             routes.add(routeId);
         }
 
+        // Add any connected A2DP devices that are not currently active
+        // (and therefore not returned by getDevices())
+        if (appContext != null) {
+            try {
+                org.json.JSONArray a2dpDevices = new org.json.JSONArray(
+                        BluetoothA2dpRouter.getConnectedA2dpDevicesJson(appContext));
+                for (int i = 0; i < a2dpDevices.length(); i++) {
+                    org.json.JSONObject device = a2dpDevices.getJSONObject(i);
+                    String routeId = LatryAudioRoutePolicy.ROUTE_BLUETOOTH_PREFIX
+                            + device.getString("name");
+                    if (!routes.contains(routeId)) {
+                        Log.d(TAG, "Adding inactive A2DP device: " + routeId);
+                        routes.add(routeId);
+                    }
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Failed to get connected A2DP devices: " + e.getMessage());
+            }
+        }
+
         return LatryAudioRoutePolicy.orderedAvailableRoutes(routes);
     }
 
@@ -600,6 +620,14 @@ private static AudioDeviceInfo findPlaybackDeviceLocked(String routeId) {
                     audioManager.clearCommunicationDevice();
                 } catch (Exception e) {
                     Log.w(TAG, "Failed to clear communication device for Bluetooth media route", e);
+                }
+
+                // Switch active A2DP device if a specific device is requested
+                if (normalizedRoute.startsWith(LatryAudioRoutePolicy.ROUTE_BLUETOOTH_PREFIX)
+                        && appContext != null) {
+                    String productName = normalizedRoute.substring(
+                            LatryAudioRoutePolicy.ROUTE_BLUETOOTH_PREFIX.length());
+                    BluetoothA2dpRouter.setActiveDeviceByProductName(appContext, productName);
                 }
                 return;
             }
