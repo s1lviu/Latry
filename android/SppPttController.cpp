@@ -182,12 +182,11 @@ void SppPttController::onHardwarePttLearningActiveChanged()
     if (!m_reflectorClient) return;
 
     if (m_reflectorClient->hardwarePttLearningActive()) {
-        // Learning started – stop bridge so B02 is free to accept new connections
-        qDebug() << "SppPttController: pausing bridge for learning mode";
-        stopBridge();
+        // Only stop bridge if no device is selected yet
+        if (m_deviceAddress.isEmpty()) {
+            stopBridge();
+        }
     } else {
-        // Learning ended – reload and restart bridge
-        qDebug() << "SppPttController: resuming bridge after learning mode";
         loadLearnedDevice();
         startBridgeIfNeeded();
     }
