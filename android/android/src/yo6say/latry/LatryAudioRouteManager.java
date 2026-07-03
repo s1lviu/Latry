@@ -324,26 +324,6 @@ public final class LatryAudioRouteManager {
             routes.add(routeId);
         }
 
-        // Add any connected A2DP devices that are not currently active
-        // (and therefore not returned by getDevices())
-        if (appContext != null) {
-            try {
-                org.json.JSONArray a2dpDevices = new org.json.JSONArray(
-                        BluetoothA2dpRouter.getConnectedA2dpDevicesJson(appContext));
-                for (int i = 0; i < a2dpDevices.length(); i++) {
-                    org.json.JSONObject device = a2dpDevices.getJSONObject(i);
-                    String routeId = LatryAudioRoutePolicy.ROUTE_BLUETOOTH_PREFIX
-                            + device.getString("name");
-                    if (!routes.contains(routeId)) {
-                        Log.d(TAG, "Adding inactive A2DP device: " + routeId);
-                        routes.add(routeId);
-                    }
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "Failed to get connected A2DP devices: " + e.getMessage());
-            }
-        }
-
         // Include all connected Classic BT devices that support A2DP,
         // even if they are not the currently active audio output.
         // Uses reflection to check ACL connection state (same safe approach
