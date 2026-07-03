@@ -244,9 +244,11 @@ Page {
                 id: deviceRepeater
                 model: SppPttController.pairedSppDevices
                 delegate: Button {
+                    required property var modelData
                     Layout.fillWidth: true
-                    text: "Device " + index
+                    text: modelData["name"] || ""
                     onClicked: {
+                        SppPttController.selectSppDevice(modelData["name"], modelData["address"])
                         pttLearningDialog.close()
                     }
                 }
