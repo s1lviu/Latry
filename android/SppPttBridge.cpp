@@ -183,6 +183,18 @@ void SppPttBridge::doConnectSocket()
                                kSppUuid, QIODevice::ReadWrite);
 }
 
+void SppPttBridge::scheduleReconnect()
+{
+    if (m_enabled) {
+        QTimer::singleShot(5000, this, [this]() {
+            if (m_enabled && !isConnected()) {
+                qDebug() << "SppPttBridge: attempting reconnect to" << m_deviceName;
+                connectToSavedDevice();
+            }
+        });
+    }
+}
+
 void SppPttBridge::onSocketConnected()
 {
     setStatus(QStringLiteral("Connected to %1").arg(m_deviceName));
@@ -193,14 +205,7 @@ void SppPttBridge::onSocketDisconnected()
 {
     setStatus(QStringLiteral("Disconnected"));
     emit connectedChanged();
-
-    // Auto-retry after a short delay if still enabled
-    if (m_enabled) {
-        QTimer::singleShot(5000, this, [this]() {
-            if (m_enabled && !isConnected())
-                connectToSavedDevice();
-        });
-    }
+    scheduleReconnect();
 }
 
 void SppPttBridge::onSocketError(QBluetoothSocket::SocketError error)
@@ -208,6 +213,7 @@ void SppPttBridge::onSocketError(QBluetoothSocket::SocketError error)
     Q_UNUSED(error)
     setStatus(QStringLiteral("Bluetooth error: %1")
               .arg(m_socket ? m_socket->errorString() : QString()));
+    scheduleReconnect();
 }
 
 void SppPttBridge::onSocketReadyRead()

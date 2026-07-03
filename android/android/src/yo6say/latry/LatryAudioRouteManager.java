@@ -415,19 +415,34 @@ public final class LatryAudioRouteManager {
         return findBuiltInMicLocked();
     }
 
-    private static AudioDeviceInfo findPlaybackDeviceLocked(String routeId) {
+private static AudioDeviceInfo findPlaybackDeviceLocked(String routeId) {
         if (audioManager == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
             return null;
         }
 
-        if (ROUTE_BLUETOOTH.equals(routeId)) {
+        if (LatryAudioRoutePolicy.isBluetoothRoute(routeId)) {
+            if (routeId.startsWith(LatryAudioRoutePolicy.ROUTE_BLUETOOTH_PREFIX)) {
+                String targetName = routeId.substring(
+                        LatryAudioRoutePolicy.ROUTE_BLUETOOTH_PREFIX.length());
+                AudioDeviceInfo[] outputDevices =
+                        audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
+                if (outputDevices != null) {
+                    for (AudioDeviceInfo deviceInfo : outputDevices) {
+                        if (isBluetoothType(deviceInfo.getType())) {
+                            CharSequence name = deviceInfo.getProductName();
+                            if (name != null && targetName.equals(name.toString())) {
+                                return deviceInfo;
+                            }
+                        }
+                    }
+                }
+            }
             return findBestBluetoothPlaybackDeviceLocked();
         }
 
-        AudioDeviceInfo[] outputDevices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
-        if (outputDevices == null) {
-            return null;
-        }
+        AudioDeviceInfo[] outputDevices =
+                audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
+        if (outputDevices == null) return null;
 
         for (AudioDeviceInfo deviceInfo : outputDevices) {
             String deviceRouteId = routeIdForDevice(deviceInfo);
@@ -435,7 +450,6 @@ public final class LatryAudioRouteManager {
                 return deviceInfo;
             }
         }
-
         return null;
     }
 
@@ -444,14 +458,29 @@ public final class LatryAudioRouteManager {
             return null;
         }
 
-        if (ROUTE_BLUETOOTH.equals(routeId)) {
+        if (LatryAudioRoutePolicy.isBluetoothRoute(routeId)) {
+            if (routeId.startsWith(LatryAudioRoutePolicy.ROUTE_BLUETOOTH_PREFIX)) {
+                String targetName = routeId.substring(
+                        LatryAudioRoutePolicy.ROUTE_BLUETOOTH_PREFIX.length());
+                AudioDeviceInfo[] inputDevices =
+                        audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS);
+                if (inputDevices != null) {
+                    for (AudioDeviceInfo deviceInfo : inputDevices) {
+                        if (isBluetoothCaptureType(deviceInfo.getType())) {
+                            CharSequence name = deviceInfo.getProductName();
+                            if (name != null && targetName.equals(name.toString())) {
+                                return deviceInfo;
+                            }
+                        }
+                    }
+                }
+            }
             return findBestBluetoothCaptureDeviceLocked();
         }
 
-        AudioDeviceInfo[] inputDevices = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS);
-        if (inputDevices == null) {
-            return null;
-        }
+        AudioDeviceInfo[] inputDevices =
+                audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS);
+        if (inputDevices == null) return null;
 
         for (AudioDeviceInfo deviceInfo : inputDevices) {
             String deviceRouteId = captureRouteIdForDevice(deviceInfo);
@@ -463,7 +492,6 @@ public final class LatryAudioRouteManager {
         if (ROUTE_SPEAKER.equals(routeId)) {
             return findBuiltInMicLocked();
         }
-
         return null;
     }
 
@@ -658,6 +686,10 @@ public final class LatryAudioRouteManager {
             return ROUTE_WIRED_HEADSET;
         }
         if (isBluetoothType(deviceType)) {
+            CharSequence productName = deviceInfo.getProductName();
+            if (productName != null && productName.length() > 0) {
+                return LatryAudioRoutePolicy.ROUTE_BLUETOOTH_PREFIX + productName.toString();
+            }
             return ROUTE_BLUETOOTH;
         }
         return "";
@@ -676,6 +708,10 @@ public final class LatryAudioRouteManager {
             return ROUTE_WIRED_HEADSET;
         }
         if (isBluetoothCaptureType(deviceType)) {
+            CharSequence productName = deviceInfo.getProductName();
+            if (productName != null && productName.length() > 0) {
+                return LatryAudioRoutePolicy.ROUTE_BLUETOOTH_PREFIX + productName.toString();
+            }
             return ROUTE_BLUETOOTH;
         }
         return "";

@@ -85,6 +85,7 @@ private:
     void connectToSavedDevice();
     void doConnectSocket();
     void processLine(const QByteArray &line);
+    void scheduleReconnect();
 
     bool    m_enabled  = false;
     bool    m_learning = false;

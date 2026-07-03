@@ -47,6 +47,14 @@ namespace {
 const QString kAudioRouteSpeaker = QStringLiteral("speaker");
 const QString kAudioRouteWiredHeadset = QStringLiteral("wired_headset");
 const QString kAudioRouteBluetooth = QStringLiteral("bluetooth");
+const QString kAudioRouteBluetoothPrefix = QStringLiteral("bluetooth:");
+
+bool isBluetoothRouteId(const QString &routeId)
+{
+    return routeId == kAudioRouteBluetooth
+           || routeId.startsWith(kAudioRouteBluetoothPrefix);
+}
+
 constexpr qreal kMinRxAudioLevelDb = 0.0;
 constexpr qreal kMaxRxAudioLevelDb = 9.0;
 constexpr qreal kMinTxAudioLevelDb = -12.0;
@@ -100,7 +108,10 @@ std::optional<QtAndroidPrivate::PermissionResult> permissionResultFromFuture(
 QString normalizeAudioRouteId(const QString &routeId)
 {
     const QString normalized = routeId.trimmed().toLower();
-    if (normalized == kAudioRouteWiredHeadset || normalized == kAudioRouteBluetooth) {
+    if (normalized == kAudioRouteWiredHeadset) {
+        return normalized;
+    }
+    if (isBluetoothRouteId(normalized)) {
         return normalized;
     }
     return kAudioRouteSpeaker;
@@ -151,10 +162,13 @@ QVariantMap describeAudioRoute(const QString &routeId)
         };
     }
 
-    if (normalized == kAudioRouteBluetooth) {
+    if (isBluetoothRouteId(normalized)) {
+        const QString deviceName = normalized.startsWith(kAudioRouteBluetoothPrefix)
+                ? normalized.mid(kAudioRouteBluetoothPrefix.length())
+                : QStringLiteral("Bluetooth");
         return {
             {QStringLiteral("id"), normalized},
-            {QStringLiteral("name"), QStringLiteral("Bluetooth")},
+            {QStringLiteral("name"), deviceName},
             {QStringLiteral("description"), QStringLiteral("Bluetooth voice route")}
         };
     }
@@ -168,28 +182,26 @@ QVariantMap describeAudioRoute(const QString &routeId)
 
 QStringList normalizedAudioRouteIds(const QStringList &routeIds)
 {
-    QStringList normalized;
+    QStringList ordered;
+    ordered.append(kAudioRouteSpeaker);
+
+    bool hasWired = false;
+    QStringList bluetoothRoutes;
+
     for (const QString &routeId : routeIds) {
-        const QString normalizedRoute = normalizeAudioRouteId(routeId);
-        if (!normalized.contains(normalizedRoute)) {
-            normalized.append(normalizedRoute);
+        const QString normalized = normalizeAudioRouteId(routeId);
+        if (normalized == kAudioRouteWiredHeadset) {
+            hasWired = true;
+        } else if (isBluetoothRouteId(normalized)
+                   && !bluetoothRoutes.contains(normalized)) {
+            bluetoothRoutes.append(normalized);
         }
     }
 
-    if (!normalized.contains(kAudioRouteSpeaker)) {
-        normalized.append(kAudioRouteSpeaker);
-    }
-
-    QStringList ordered;
-    if (normalized.contains(kAudioRouteSpeaker)) {
-        ordered.append(kAudioRouteSpeaker);
-    }
-    if (normalized.contains(kAudioRouteWiredHeadset)) {
+    if (hasWired) {
         ordered.append(kAudioRouteWiredHeadset);
     }
-    if (normalized.contains(kAudioRouteBluetooth)) {
-        ordered.append(kAudioRouteBluetooth);
-    }
+    ordered.append(bluetoothRoutes);
 
     return ordered;
 }

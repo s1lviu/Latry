@@ -15,7 +15,11 @@ namespace AndroidAudioRouteInterop {
 QString normalizeRouteId(const QString &routeId)
 {
     const QString normalized = routeId.trimmed().toLower();
-    if (normalized == kAudioRouteWiredHeadset || normalized == kAudioRouteBluetooth) {
+    if (normalized == kAudioRouteWiredHeadset) {
+        return normalized;
+    }
+    if (normalized == kAudioRouteBluetooth
+            || normalized.startsWith(QStringLiteral("bluetooth:"))) {
         return normalized;
     }
     return kAudioRouteSpeaker;
