@@ -5,6 +5,8 @@ import android.bluetooth.BluetoothDevice;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.util.Log;
+import android.bluetooth.BluetoothManager;
+import android.content.Context;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -22,7 +24,7 @@ final class SppDeviceHelper {
 
     /**
      * Returns a JSON array of paired Classic BT devices, e.g.:
-     * [{"name":"B02PTT-063F","address":"08:21:87:24:06:3F"}, ...]
+     * [{"name":"B02PTT-XXXX","address":"XX:XX:XX:XX:XX:XX"}, ...]
      *
      * Returns empty array on error or no devices.
      */
@@ -36,7 +38,10 @@ final class SppDeviceHelper {
                 }
             }
 
-            final BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+            final BluetoothManager bluetoothManager = 
+                (BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
+            if (bluetoothManager == null) return "[]";
+            final BluetoothAdapter adapter = bluetoothManager.getAdapter();
             if (adapter == null || !adapter.isEnabled()) {
                 return "[]";
             }
