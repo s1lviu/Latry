@@ -1039,76 +1039,75 @@ Page {
                             }
                         }
 
-                        Frame {
-                            id: bluetoothRouteCard
-                            visible: page.audioRouteAvailable("bluetooth")
-                            Layout.fillWidth: true
-                            padding: page.uiMetrics.nestedSectionPadding
-                            Accessible.role: Accessible.Grouping
-                            Accessible.name: page.audioRouteName("bluetooth")
-
-                            readonly property bool preferred: page.preferredAudioRoute === "bluetooth"
-                            readonly property bool current: page.currentAudioRoute === "bluetooth"
-
-                            background: Rectangle {
-                                Accessible.ignored: true
-                                radius: page.uiMetrics.nestedFrameRadius
-                                color: bluetoothRouteCard.preferred ? "#edf2ff" : "#f8fafc"
-                                border.color: bluetoothRouteCard.preferred ? page.accentColor : "#d7deee"
+                        Repeater {
+                            model: {
+                                let btRoutes = []
+                                for (let i = 0; i < page.availableAudioRoutes.length; ++i) {
+                                    const route = page.availableAudioRoutes[i]
+                                    if (route.id === "bluetooth" || route.id.startsWith("bluetooth:")) {
+                                        btRoutes.push(route)
+                                    }
+                                }
+                                return btRoutes
                             }
 
-                            contentItem: ColumnLayout {
-                                spacing: 8
+                            delegate: Frame {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                padding: page.uiMetrics.nestedSectionPadding
+                                Accessible.role: Accessible.Grouping
+                                Accessible.name: modelData.name
 
-                                RowLayout {
-                                    Layout.fillWidth: true
+                                readonly property bool preferred: page.preferredAudioRoute === modelData.id
+                                readonly property bool current: page.currentAudioRoute === modelData.id
+
+                                background: Rectangle {
+                                    Accessible.ignored: true
+                                    radius: page.uiMetrics.nestedFrameRadius
+                                    color: parent.preferred ? "#edf2ff" : "#f8fafc"
+                                    border.color: parent.preferred ? page.accentColor : "#d7deee"
+                                }
+
+                                contentItem: ColumnLayout {
+                                    spacing: 8
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: modelData.name
+                                            font.bold: true
+                                            Accessible.role: Accessible.StaticText
+                                            Accessible.name: text
+                                        }
+
+                                        Image {
+                                            source: "qrc:/icons/bluetooth.svg"
+                                            sourceSize: Qt.size(20, 20)
+                                            visible: status === Image.Ready
+                                        }
+                                    }
 
                                     Label {
                                         Layout.fillWidth: true
-                                        text: page.audioRouteName("bluetooth")
-                                        font.bold: true
+                                        text: page.audioRouteDescription(modelData.id)
+                                        color: "#556070"
+                                        font.pixelSize: 12
+                                        wrapMode: Text.WordWrap
                                         Accessible.role: Accessible.StaticText
                                         Accessible.name: text
                                     }
 
-                                    Label {
-                                        visible: bluetoothRouteCard.current
-                                        text: qsTr("Current")
-                                        color: "#2f5b16"
-                                        font.bold: true
-                                        Accessible.role: Accessible.StaticText
+                                    Button {
+                                        Layout.alignment: Qt.AlignRight
+                                        text: parent.parent.current
+                                              ? qsTr("%1 active").arg(modelData.name)
+                                              : qsTr("Use %1").arg(modelData.name)
+                                        enabled: !parent.parent.current
                                         Accessible.name: text
+                                        onClicked: page.audioRouteRequested(modelData.id)
                                     }
-
-                                    Label {
-                                        visible: bluetoothRouteCard.preferred
-                                        text: qsTr("Selected")
-                                        color: page.accentColor
-                                        font.bold: true
-                                        Accessible.role: Accessible.StaticText
-                                        Accessible.name: text
-                                    }
-                                }
-
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: page.audioRouteDescription("bluetooth")
-                                    wrapMode: Text.WordWrap
-                                    color: "#556070"
-                                    Accessible.role: Accessible.StaticText
-                                    Accessible.name: text
-                                }
-
-                                Button {
-                                    Layout.fillWidth: true
-                                    text: (bluetoothRouteCard.preferred && bluetoothRouteCard.current)
-                                          ? qsTr("Active") : qsTr("Use This Route")
-                                    enabled: !(bluetoothRouteCard.preferred && bluetoothRouteCard.current)
-                                             && !page.reflectorClient.pttActive
-                                    Accessible.name: (bluetoothRouteCard.preferred && bluetoothRouteCard.current)
-                                                     ? qsTr("%1 active").arg(page.audioRouteName("bluetooth"))
-                                                     : qsTr("Use %1").arg(page.audioRouteName("bluetooth"))
-                                    onClicked: page.audioRouteRequested("bluetooth")
                                 }
                             }
                         }
