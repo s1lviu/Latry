@@ -2,29 +2,34 @@ package yo6say.latry;
 
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
-import android.bluetooth.BluetoothServerSocket;
 import android.bluetooth.BluetoothSocket;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Listens for incoming Bluetooth SPP/RFCOMM connections during PTT learning
- * mode. Instead of trying to connect OUT to devices (which fails when the
- * device already has an active connection), we open a server socket and let
- * the PTT device connect IN to us — exactly how normal SppPttBridge operation
- * works.
+ * Scans paired Classic Bluetooth SPP devices during PTT learning mode.
  *
- * When the PTT button is pressed, the device connects and sends data.
- * We record the first message as the press pattern, wait for a second
- * distinct message as the release pattern, then report success.
+ * Connects to all paired Classic BT devices in parallel. The first device
+ * that sends any data "wins". We then intelligently split the received data
+ * into press and release patterns, handling both cases:
+ *
+ * Case A: Press and release arrive in separate read() calls.
+ *   Buffer 1: "+PTT=P"
+ *   Buffer 2: "+PTT=R"
+ *
+ * Case B: Press and release arrive in the same read() call (common when
+ *   the user taps quickly, or RFCOMM buffers both before we read).
+ *   Buffer 1: "+PTT=P+PTT=R"  → split into "+PTT=P" and "+PTT=R"
  */
 final class SppPttScanner {
     interface Callback {
@@ -32,103 +37,92 @@ final class SppPttScanner {
                                     String pressPattern, String releasePattern);
     }
 
-    private static final String TAG = "LatrySppPttScanner";
-    private static final UUID SPP_UUID =
+    private static final String TAG      = "LatrySppPttScanner";
+    private static final UUID   SPP_UUID =
             UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
-    private static final String SERVICE_NAME = "LatryPttLearning";
-    private static final int READ_TIMEOUT_MS = 12_000;
+    private static final int LEARN_TIMEOUT_MS = 12_000;
+    private static final int SPLIT_WAIT_MS    = 150;
 
     private static volatile boolean scanning = false;
-    private static BluetoothServerSocket serverSocket;
     private static ExecutorService executor;
     private static final Handler mainHandler = new Handler(Looper.getMainLooper());
 
-    private SppPttScanner() {
-    }
+    private SppPttScanner() {}
 
     static boolean startScanning(Context context, Callback callback) {
         if (scanning) {
-            Log.w(TAG, "startScanning: already active");
+            Log.w(TAG, "Already scanning");
             return false;
+        }
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            if (context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+                    != PackageManager.PERMISSION_GRANTED) {
+                Log.w(TAG, "BLUETOOTH_CONNECT not granted");
+                return false;
+            }
         }
 
         final BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
         if (adapter == null || !adapter.isEnabled()) {
-            Log.w(TAG, "startScanning: Bluetooth adapter unavailable");
+            Log.w(TAG, "Bluetooth unavailable");
             return false;
         }
 
-        try {
-            // Open a server socket – the PTT device will connect to us
-            serverSocket = adapter.listenUsingRfcommWithServiceRecord(
-                    SERVICE_NAME, SPP_UUID);
-        } catch (IOException e) {
-            Log.e(TAG, "Failed to open Bluetooth server socket: " + e.getMessage());
+        final Set<BluetoothDevice> paired = adapter.getBondedDevices();
+        if (paired == null || paired.isEmpty()) {
+            Log.w(TAG, "No paired devices");
             return false;
         }
 
         scanning = true;
-        executor = Executors.newSingleThreadExecutor();
-        executor.submit(() -> acceptConnection(context, callback));
+        executor = Executors.newCachedThreadPool();
 
-        Log.i(TAG, "SPP learning server started, waiting for PTT device to connect...");
+        for (final BluetoothDevice device : paired) {
+            if (device.getType() == BluetoothDevice.DEVICE_TYPE_LE) continue;
+
+            final String name    = device.getName() != null ? device.getName() : "Unknown";
+            final String address = device.getAddress();
+
+            executor.submit(() -> probeDevice(context, device, name, address, callback));
+        }
+
+        Log.i(TAG, "SPP scanning started for " + paired.size() + " device(s)");
         return true;
     }
 
     static void stopScanning() {
-        if (!scanning) {
-            return;
-        }
+        if (!scanning) return;
         scanning = false;
-
-        // Close server socket to unblock accept()
-        if (serverSocket != null) {
-            try { serverSocket.close(); } catch (IOException ignored) { }
-            serverSocket = null;
-        }
-
         if (executor != null) {
             executor.shutdownNow();
             executor = null;
         }
-        Log.i(TAG, "SPP learning server stopped");
+        Log.i(TAG, "SPP scanning stopped");
     }
 
-    static boolean isScanning() {
-        return scanning;
-    }
+    static boolean isScanning() { return scanning; }
 
-    private static void acceptConnection(Context context, Callback callback) {
+    private static void probeDevice(Context context,
+                                    BluetoothDevice device,
+                                    String name,
+                                    String address,
+                                    Callback callback) {
         BluetoothSocket socket = null;
         try {
-            Log.i(TAG, "Waiting for incoming PTT device connection...");
+            socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
+            socket.connect();
 
-            // accept() blocks until a device connects or the socket is closed
-            socket = serverSocket.accept();
+            if (!scanning) return;
+            Log.i(TAG, "Connected to " + name + " – waiting for PTT...");
 
-            if (!scanning) {
-                return;
-            }
-
-            final BluetoothDevice device = socket.getRemoteDevice();
-            final String name = device.getName() != null ? device.getName() : "Unknown";
-            final String address = device.getAddress();
-            Log.i(TAG, "PTT device connected: " + name + " (" + address + ")");
-
-            // Now read press and release patterns
             learnPatterns(context, socket, name, address, callback);
 
         } catch (IOException e) {
-            if (scanning) {
-                Log.e(TAG, "Server socket error: " + e.getMessage());
-            }
+            Log.d(TAG, "Cannot connect to " + name + ": " + e.getMessage());
         } finally {
             if (socket != null) {
-                try { socket.close(); } catch (IOException ignored) { }
-            }
-            if (serverSocket != null) {
-                try { serverSocket.close(); } catch (IOException ignored) { }
-                serverSocket = null;
+                try { socket.close(); } catch (IOException ignored) {}
             }
         }
     }
@@ -139,102 +133,128 @@ final class SppPttScanner {
                                       String address,
                                       Callback callback) {
         try {
-            final InputStream stream = socket.getInputStream();
-            final byte[] buf = new byte[64];
-            final long deadline = System.currentTimeMillis() + READ_TIMEOUT_MS;
-            final StringBuilder rxBuffer = new StringBuilder();
+            final InputStream stream   = socket.getInputStream();
+            final byte[]      buf      = new byte[256];
+            final long        deadline = System.currentTimeMillis() + LEARN_TIMEOUT_MS;
 
-            String pressPattern = null;
+            String pressPattern   = null;
             String releasePattern = null;
 
             while (scanning && System.currentTimeMillis() < deadline) {
-                final int available = stream.available();
-                if (available <= 0) {
+
+                if (stream.available() <= 0) {
                     Thread.sleep(20);
                     continue;
                 }
 
-                final int n = stream.read(buf, 0, Math.min(available, buf.length));
+                // Read what's available now
+                int n = stream.read(buf, 0, Math.min(stream.available(), buf.length));
                 if (n <= 0) continue;
 
-                rxBuffer.append(new String(buf, 0, n));
-                Log.d(TAG, "Raw buffer: [" + rxBuffer + "]");
+                // Wait briefly for any immediately following bytes (release coming right after press)
+                Thread.sleep(SPLIT_WAIT_MS);
+                if (stream.available() > 0) {
+                    int n2 = stream.read(buf, n, Math.min(stream.available(), buf.length - n));
+                    if (n2 > 0) n += n2;
+                }
 
-                // Process complete messages - try newline first, then fixed chunks
-                while (true) {
-                    String candidate = null;
-                    int consumeUpTo = -1;
+                final String chunk = new String(buf, 0, n);
+                Log.d(TAG, "Received from " + name + ": [" + chunk + "]");
 
-                    int nlIdx = rxBuffer.indexOf("\n");
-                    if (nlIdx >= 0) {
-                        candidate = rxBuffer.substring(0, nlIdx).trim();
-                        consumeUpTo = nlIdx + 1;
-                    } else if (rxBuffer.length() >= 6) {
-                        // No newline - B02 sends exactly 6 chars without delimiter
-                        candidate = rxBuffer.substring(0, 6).trim();
-                        consumeUpTo = 6;
-                    } else {
-                        break; // Need more data
+                if (pressPattern == null) {
+                    // First data = press event (possibly also contains release)
+                    String[] parts = splitPressRelease(chunk);
+                    pressPattern = parts[0];
+                    Log.i(TAG, "Press pattern: [" + pressPattern + "]");
+
+                    if (parts[1] != null && !parts[1].isEmpty()
+                            && !parts[1].equals(pressPattern)) {
+                        releasePattern = parts[1];
+                        Log.i(TAG, "Release pattern (same chunk): [" + releasePattern + "]");
+                        onDetected(context, name, address,
+                                   pressPattern, releasePattern, callback);
+                        return;
                     }
 
-                    if (consumeUpTo > 0) {
-                        rxBuffer.delete(0, consumeUpTo);
-                    }
+                } else {
+                    // Second data = release event
+                    String[] parts = splitPressRelease(chunk);
+                    String candidate = parts[0];
 
-                    if (candidate == null || candidate.isEmpty()) {
+                    if (candidate.equals(pressPattern)) {
+                        // User pressed again before releasing – reset and wait
+                        Log.d(TAG, "Got press again, resetting...");
                         continue;
                     }
 
-                    Log.i(TAG, "PTT candidate: [" + candidate + "]");
-
-                    if (pressPattern == null) {
-                        pressPattern = candidate;
-                        Log.i(TAG, "Learned press pattern: [" + pressPattern + "]");
-                    } else if (!candidate.equals(pressPattern)) {
-                        releasePattern = candidate;
-                        Log.i(TAG, "Learned release pattern: [" + releasePattern + "]");
-
-                        // Success!
-                        final String fp = pressPattern;
-                        final String fr = releasePattern;
-                        onDeviceDetected(context, name, address, fp, fr, callback);
-                        return;
-                    }
+                    releasePattern = candidate;
+                    Log.i(TAG, "Release pattern: [" + releasePattern + "]");
+                    onDetected(context, name, address,
+                               pressPattern, releasePattern, callback);
+                    return;
                 }
             }
 
-            // Timeout - if we got press but no release, save with empty release
-            if (pressPattern != null) {
-                Log.w(TAG, "Got press but no release, saving with empty release pattern");
-                onDeviceDetected(context, name, address, pressPattern, "", callback);
-            } else {
-                Log.w(TAG, "No patterns learned within timeout");
+            // Got press but no release
+            if (pressPattern != null && scanning) {
+                Log.w(TAG, "No release pattern received, saving with empty release");
+                onDetected(context, name, address, pressPattern, "", callback);
             }
 
         } catch (IOException | InterruptedException e) {
-            if (scanning) {
-                Log.e(TAG, "Error reading from PTT device: " + e.getMessage());
-            }
+            if (scanning) Log.d(TAG, "Error: " + e.getMessage());
         }
     }
 
-    private static void onDeviceDetected(Context context,
-                                         String name,
-                                         String address,
-                                         String pressPattern,
-                                         String releasePattern,
-                                         Callback callback) {
+    /**
+     * Splits a buffer that may contain both press and release concatenated.
+     *
+     * Finds the shortest prefix P such that the remainder starts with
+     * something different from P. Example:
+     *   "+PTT=P+PTT=R" → ["+PTT=P", "+PTT=R"]
+     *   "+PTT=P"       → ["+PTT=P", null]
+     *
+     * Works for any protocol, not just B02.
+     */
+    private static String[] splitPressRelease(String data) {
+        if (data == null || data.isEmpty()) return new String[]{"", null};
+
+        final String trimmed = data.trim();
+
+        for (int splitAt = 1; splitAt <= trimmed.length() / 2; splitAt++) {
+            final String first  = trimmed.substring(0, splitAt);
+            final String rest   = trimmed.substring(splitAt);
+
+            // rest starts with something that is NOT the same as first
+            if (!rest.startsWith(first)) {
+                // Find where rest ends (before any repetition of first)
+                int nextPress = rest.indexOf(first);
+                String release = nextPress > 0
+                        ? rest.substring(0, nextPress).trim()
+                        : rest.trim();
+
+                if (!release.isEmpty() && !release.equals(first)) {
+                    return new String[]{first, release};
+                }
+            }
+        }
+
+        return new String[]{trimmed, null};
+    }
+
+    private static void onDetected(Context context,
+                                   String name, String address,
+                                   String press, String release,
+                                   Callback callback) {
         if (!scanning) return;
         scanning = false;
 
         HardwarePttSettingsStore.setLearnedSppDevice(
-                context, name, address, pressPattern, releasePattern);
+                context, name, address, press, release);
+        Log.i(TAG, "Learned SPP device: " + name
+                + " press=[" + press + "] release=[" + release + "]");
 
-        Log.i(TAG, "Learned SPP PTT device: " + name
-                + " press=[" + pressPattern + "]"
-                + " release=[" + releasePattern + "]");
-
-        mainHandler.post(() -> callback.onSppPttDeviceDetected(
-                name, address, pressPattern, releasePattern));
+        mainHandler.post(() ->
+                callback.onSppPttDeviceDetected(name, address, press, release));
     }
 }
