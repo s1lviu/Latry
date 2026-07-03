@@ -168,6 +168,11 @@ void SppPttController::startBridgeIfNeeded()
     m_bridge->selectDevice(m_deviceName, m_deviceAddress,
                            m_pressPattern, m_releasePattern);
     m_bridge->setEnabled(true);
+
+    // If learning mode is active, start learning on the bridge
+    if (m_reflectorClient && m_reflectorClient->hardwarePttLearningActive()) {
+        m_bridge->startLearning();
+    }
 }
 
 void SppPttController::stopBridge()

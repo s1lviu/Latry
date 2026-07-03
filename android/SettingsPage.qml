@@ -236,6 +236,11 @@ Page {
                 horizontalAlignment: Text.AlignHCenter
             }
 
+            BusyIndicator {
+                Layout.alignment: Qt.AlignHCenter
+                running: pttLearningDialog.opened
+            }
+
             Repeater {
                 id: deviceRepeater
                 model: SppPttController.pairedSppDevices
@@ -249,11 +254,6 @@ Page {
                         pttLearningDialog.close()
                     }
                 }
-            }
-
-            BusyIndicator {
-                Layout.alignment: Qt.AlignHCenter
-                running: pttLearningDialog.opened
             }
 
             Label {
