@@ -615,18 +615,11 @@ private static AudioDeviceInfo findPlaybackDeviceLocked(String routeId) {
         Log.i(TAG, "applyRouteLocked: " + normalizedRoute);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (LatryAudioRoutePolicy.isBluetoothRoute(normalizedRoute)) {
+            if (ROUTE_BLUETOOTH.equals(normalizedRoute)) {
                 try {
                     audioManager.clearCommunicationDevice();
                 } catch (Exception e) {
                     Log.w(TAG, "Failed to clear communication device for Bluetooth media route", e);
-                }
-
-                // Switch active A2DP device if a specific device is requested
-                if (normalizedRoute.startsWith(LatryAudioRoutePolicy.ROUTE_BLUETOOTH_PREFIX)
-                        && appContext != null) {
-                    String productName = normalizedRoute.substring(
-                            LatryAudioRoutePolicy.ROUTE_BLUETOOTH_PREFIX.length());
                 }
                 return;
             }
