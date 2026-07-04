@@ -16,10 +16,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import androidx.core.content.ContextCompat;
-import android.bluetooth.BluetoothDevice;
-import android.bluetooth.BluetoothProfile;
-import android.bluetooth.BluetoothManager;
-import java.lang.reflect.Method;
 
 public final class LatryAudioRouteManager {
     private static final String TAG = "LatryAudioRouteMgr";
@@ -324,43 +320,6 @@ public final class LatryAudioRouteManager {
             routes.add(routeId);
         }
 
-        // Include all connected Classic BT devices that support A2DP,
-        // even if they are not the currently active audio output.
-        // Uses reflection to check ACL connection state (same safe approach
-        // as SppDeviceHelper) — purely passive, no system state manipulation.
-        if (appContext != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            try {
-                BluetoothManager btManager = (BluetoothManager)
-                        appContext.getSystemService(Context.BLUETOOTH_SERVICE);
-                if (btManager != null) {
-                    android.bluetooth.BluetoothAdapter adapter = btManager.getAdapter();
-                    if (adapter != null && adapter.isEnabled()) {
-                        java.lang.reflect.Method isConnected =
-                                android.bluetooth.BluetoothDevice.class.getMethod("isConnected");
-                        for (android.bluetooth.BluetoothDevice device
-                                : adapter.getBondedDevices()) {
-                            if (device.getType()
-                                    == android.bluetooth.BluetoothDevice.DEVICE_TYPE_LE) {
-                                continue;
-                            }
-                            try {
-                                if (!(boolean) isConnected.invoke(device)) continue;
-                            } catch (Exception ignored) {}
-
-                            String routeId = LatryAudioRoutePolicy.ROUTE_BLUETOOTH_PREFIX
-                                    + device.getName();
-                            if (!routes.contains(routeId)) {
-                                Log.d(TAG, "Adding connected BT device: " + routeId);
-                                routes.add(routeId);
-                            }
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "Failed to enumerate connected BT devices: " + e.getMessage());
-            }
-        }
-
         return LatryAudioRoutePolicy.orderedAvailableRoutes(routes);
     }
 
@@ -456,34 +415,19 @@ public final class LatryAudioRouteManager {
         return findBuiltInMicLocked();
     }
 
-private static AudioDeviceInfo findPlaybackDeviceLocked(String routeId) {
+    private static AudioDeviceInfo findPlaybackDeviceLocked(String routeId) {
         if (audioManager == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
             return null;
         }
 
-        if (LatryAudioRoutePolicy.isBluetoothRoute(routeId)) {
-            if (routeId.startsWith(LatryAudioRoutePolicy.ROUTE_BLUETOOTH_PREFIX)) {
-                String targetName = routeId.substring(
-                        LatryAudioRoutePolicy.ROUTE_BLUETOOTH_PREFIX.length());
-                AudioDeviceInfo[] outputDevices =
-                        audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
-                if (outputDevices != null) {
-                    for (AudioDeviceInfo deviceInfo : outputDevices) {
-                        if (isBluetoothType(deviceInfo.getType())) {
-                            CharSequence name = deviceInfo.getProductName();
-                            if (name != null && targetName.equals(name.toString())) {
-                                return deviceInfo;
-                            }
-                        }
-                    }
-                }
-            }
+        if (ROUTE_BLUETOOTH.equals(routeId)) {
             return findBestBluetoothPlaybackDeviceLocked();
         }
 
-        AudioDeviceInfo[] outputDevices =
-                audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
-        if (outputDevices == null) return null;
+        AudioDeviceInfo[] outputDevices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
+        if (outputDevices == null) {
+            return null;
+        }
 
         for (AudioDeviceInfo deviceInfo : outputDevices) {
             String deviceRouteId = routeIdForDevice(deviceInfo);
@@ -491,6 +435,7 @@ private static AudioDeviceInfo findPlaybackDeviceLocked(String routeId) {
                 return deviceInfo;
             }
         }
+
         return null;
     }
 
@@ -499,29 +444,14 @@ private static AudioDeviceInfo findPlaybackDeviceLocked(String routeId) {
             return null;
         }
 
-        if (LatryAudioRoutePolicy.isBluetoothRoute(routeId)) {
-            if (routeId.startsWith(LatryAudioRoutePolicy.ROUTE_BLUETOOTH_PREFIX)) {
-                String targetName = routeId.substring(
-                        LatryAudioRoutePolicy.ROUTE_BLUETOOTH_PREFIX.length());
-                AudioDeviceInfo[] inputDevices =
-                        audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS);
-                if (inputDevices != null) {
-                    for (AudioDeviceInfo deviceInfo : inputDevices) {
-                        if (isBluetoothCaptureType(deviceInfo.getType())) {
-                            CharSequence name = deviceInfo.getProductName();
-                            if (name != null && targetName.equals(name.toString())) {
-                                return deviceInfo;
-                            }
-                        }
-                    }
-                }
-            }
+        if (ROUTE_BLUETOOTH.equals(routeId)) {
             return findBestBluetoothCaptureDeviceLocked();
         }
 
-        AudioDeviceInfo[] inputDevices =
-                audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS);
-        if (inputDevices == null) return null;
+        AudioDeviceInfo[] inputDevices = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS);
+        if (inputDevices == null) {
+            return null;
+        }
 
         for (AudioDeviceInfo deviceInfo : inputDevices) {
             String deviceRouteId = captureRouteIdForDevice(deviceInfo);
@@ -533,6 +463,7 @@ private static AudioDeviceInfo findPlaybackDeviceLocked(String routeId) {
         if (ROUTE_SPEAKER.equals(routeId)) {
             return findBuiltInMicLocked();
         }
+
         return null;
     }
 
@@ -636,13 +567,12 @@ private static AudioDeviceInfo findPlaybackDeviceLocked(String routeId) {
         Log.i(TAG, "applyRouteLocked: " + normalizedRoute);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (LatryAudioRoutePolicy.isBluetoothRoute(normalizedRoute)) {
+            if (ROUTE_BLUETOOTH.equals(normalizedRoute)) {
                 try {
                     audioManager.clearCommunicationDevice();
                 } catch (Exception e) {
                     Log.w(TAG, "Failed to clear communication device for Bluetooth media route", e);
                 }
-
                 return;
             }
 
@@ -728,10 +658,6 @@ private static AudioDeviceInfo findPlaybackDeviceLocked(String routeId) {
             return ROUTE_WIRED_HEADSET;
         }
         if (isBluetoothType(deviceType)) {
-            CharSequence productName = deviceInfo.getProductName();
-            if (productName != null && productName.length() > 0) {
-                return LatryAudioRoutePolicy.ROUTE_BLUETOOTH_PREFIX + productName.toString();
-            }
             return ROUTE_BLUETOOTH;
         }
         return "";
@@ -750,10 +676,6 @@ private static AudioDeviceInfo findPlaybackDeviceLocked(String routeId) {
             return ROUTE_WIRED_HEADSET;
         }
         if (isBluetoothCaptureType(deviceType)) {
-            CharSequence productName = deviceInfo.getProductName();
-            if (productName != null && productName.length() > 0) {
-                return LatryAudioRoutePolicy.ROUTE_BLUETOOTH_PREFIX + productName.toString();
-            }
             return ROUTE_BLUETOOTH;
         }
         return "";
