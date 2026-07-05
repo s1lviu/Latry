@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.concurrent.Executor;
 import androidx.core.content.ContextCompat;
 import org.qtproject.qt.android.bindings.QtActivity;
+import androidx.core.view.WindowInsetsControllerCompat;
 
 public class LatryActivity extends QtActivity {
     private static final String TAG = "LatryActivity";
@@ -59,6 +60,10 @@ public class LatryActivity extends QtActivity {
     public void onCreate(Bundle savedInstanceState) {
         applyQtAccessibilityCrashWorkaroundIfNeeded();
         super.onCreate(savedInstanceState);
+        // Always use dark status bar text since Latry has a light background
+        WindowInsetsControllerCompat insetsController =
+            new WindowInsetsControllerCompat(getWindow(), getWindow().getDecorView());
+        insetsController.setAppearanceLightStatusBars(true);
         appInitiatedShutdownRequested = false;
         currentActivityInstance = this;
         LatrySentry.addBreadcrumb("ui.lifecycle", "activity_created", io.sentry.SentryLevel.INFO);

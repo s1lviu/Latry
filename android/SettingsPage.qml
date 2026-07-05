@@ -1039,7 +1039,7 @@ Page {
                             }
                         }
 
-                Frame {
+                        Frame {
                             id: bluetoothRouteCard
                             visible: page.audioRouteAvailable("bluetooth")
                             Layout.fillWidth: true
