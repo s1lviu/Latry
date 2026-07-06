@@ -899,10 +899,11 @@ void ReflectorClient::startHardwarePttLearning()
     }
 
 #if defined(Q_OS_ANDROID)
-    QJniObject activity = QJniObject::callStaticObjectMethod(
-        "org/qtproject/qt/android/QtNative",
-        "activity",
-        "()Landroid/app/Activity;");
+    QJniObject activity = androidQtContext();
+    if (!activity.isValid()) {
+        qWarning() << "ReflectorClient: failed to get Android context for PTT learning";
+        return;
+    }
     const jboolean started = QJniObject::callStaticMethod<jboolean>(
         "yo6say/latry/HardwarePttLearningCoordinator",
         "startLearning",

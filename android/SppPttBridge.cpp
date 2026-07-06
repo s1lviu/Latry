@@ -46,7 +46,6 @@ void SppPttBridge::setEnabled(bool on)
         connectToSavedDevice();
     } else {
         if (m_socket) {
-            m_socket->disconnect();
             m_socket->close();
             m_socket->deleteLater();
             m_socket = nullptr;
@@ -71,12 +70,8 @@ void SppPttBridge::selectDevice(const QString &name,
     m_deviceName    = name;
     m_deviceAddress = address;
 
-    // Use provided patterns, or fall back to the Zello/Inrico B02 defaults
-    // if none are given (backwards compatibility with devices using this protocol).
-    m_pressPattern   = pressPattern.isEmpty()
-                       ? QStringLiteral("+ptt=p") : pressPattern;
-    m_releasePattern = releasePattern.isEmpty()
-                       ? QStringLiteral("+ptt=r") : releasePattern;
+    m_pressPattern   = pressPattern;
+    m_releasePattern = releasePattern;
 
     emit pairedDeviceChanged();
 
@@ -161,7 +156,6 @@ void SppPttBridge::connectToSavedDevice()
 void SppPttBridge::doConnectSocket()
 {
     if (m_socket) {
-        m_socket->disconnect();
         m_socket->close();
         m_socket->deleteLater();
         m_socket = nullptr;
