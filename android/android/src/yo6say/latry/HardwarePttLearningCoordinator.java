@@ -36,7 +36,7 @@ final class HardwarePttLearningCoordinator {
      *
      * @return true if learning was started, false if already active.
      */
-    static boolean startLearning() {
+    static boolean startLearning(Context context) {
         if (learningActive) {
             Log.w(TAG, "startLearning called while already active");
             return false;
@@ -61,7 +61,7 @@ final class HardwarePttLearningCoordinator {
         };
         handler.postDelayed(timeoutRunnable, LEARNING_TIMEOUT_MS);
 
-        Log.i(TAG, "Learning mode started, timeout=" + LEARNING_TIMEOUT_MS + " ms");
+        Log.i(TAG, "Learning mode started (key + SPP), timeout=" + LEARNING_TIMEOUT_MS + " ms");
         return true;
     }
 

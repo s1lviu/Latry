@@ -39,12 +39,14 @@ set(LATRY_APP_SOURCES
     main.cpp
     ${LATRY_CORE_SOURCES}
     BatteryOptimizationHandler.cpp
+    SppPttBridge.cpp
+    SppPttController.cpp
 )
 
 # --- Find/Build All Dependencies FIRST ---
 
 # 1. Find Qt6 - This MUST come before any qt_* commands.
-find_package(Qt6 6.9 REQUIRED COMPONENTS Quick Network Multimedia)
+find_package(Qt6 6.9 REQUIRED COMPONENTS Quick Network Multimedia Bluetooth)
 qt_policy(SET QTP0002 NEW)
 if(ANDROID)
     # The project builds both the main app and a dedicated Qt Android service binary.
@@ -123,6 +125,7 @@ target_link_libraries(applatry PRIVATE
     Qt6::Quick
     Qt6::Network
     Qt6::Multimedia
+    Qt6::Bluetooth
 )
 
 if(ANDROID)
@@ -170,6 +173,7 @@ if(ANDROID)
     endif()
     target_compile_definitions(latryservice PRIVATE
         LATRY_VERSION_NAME="${LATRY_VERSION_NAME}"
+        LATRY_SERVICE_BUILD
     )
 
     set_property(TARGET applatry APPEND PROPERTY

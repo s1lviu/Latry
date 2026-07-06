@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import SvxlinkReflector.Client 1.0
 
 Page {
     id: page
@@ -108,7 +109,7 @@ Page {
     function audioRouteDescription(routeId) {
         if (routeId === "wired_headset")
             return qsTr("Wired audio route")
-        if (routeId === "bluetooth")
+        if (routeId === "bluetooth" || routeId.startsWith("bluetooth:"))
             return qsTr("Bluetooth voice route")
         return qsTr("Speaker + Internal mic")
     }
@@ -230,14 +231,14 @@ Page {
 
             Label {
                 Layout.fillWidth: true
-                text: qsTr("Press the physical PTT button now.\n\nThe first valid hardware key will be saved as your PTT button.")
+                text: qsTr("Press a hardware button, or press the PTT button on a paired Bluetooth device.")
                 wrapMode: Text.WordWrap
                 horizontalAlignment: Text.AlignHCenter
             }
 
             BusyIndicator {
                 Layout.alignment: Qt.AlignHCenter
-                running: pttLearningDialog.opened
+                running: page.reflectorClient.hardwarePttLearningActive
             }
 
             Label {
@@ -1070,30 +1071,19 @@ Page {
                                         Accessible.name: text
                                     }
 
-                                    Label {
-                                        visible: bluetoothRouteCard.current
-                                        text: qsTr("Current")
-                                        color: "#2f5b16"
-                                        font.bold: true
-                                        Accessible.role: Accessible.StaticText
-                                        Accessible.name: text
-                                    }
-
-                                    Label {
-                                        visible: bluetoothRouteCard.preferred
-                                        text: qsTr("Selected")
-                                        color: page.accentColor
-                                        font.bold: true
-                                        Accessible.role: Accessible.StaticText
-                                        Accessible.name: text
+                                    Image {
+                                        source: "qrc:/icons/bluetooth.svg"
+                                        sourceSize: Qt.size(20, 20)
+                                        visible: status === Image.Ready
                                     }
                                 }
 
                                 Label {
                                     Layout.fillWidth: true
                                     text: page.audioRouteDescription("bluetooth")
-                                    wrapMode: Text.WordWrap
                                     color: "#556070"
+                                    font.pixelSize: 12
+                                    wrapMode: Text.WordWrap
                                     Accessible.role: Accessible.StaticText
                                     Accessible.name: text
                                 }
@@ -1532,10 +1522,15 @@ Page {
                                                               ? Qt.AlignLeft
                                                               : Qt.AlignVCenter
                                             text: qsTr("Clear")
-                                            enabled: page.reflectorClient.learnedHardwarePttKeyCode > 0
+                                            enabled: (page.reflectorClient.learnedHardwarePttKeyCode > 0
+                                                      || SppPttController.learnedSppDeviceAddress !== "")
                                                      && !page.reflectorClient.hardwarePttLearningActive
-                                            Accessible.name: qsTr("Clear learned hardware PTT key code")
-                                            onClicked: page.clearLearnedHardwarePttKeyCodeRequested()
+                                            onClicked: {
+                                                if (SppPttController.learnedSppDeviceAddress !== "")
+                                                    SppPttController.clearLearnedSppDevice()
+                                                else
+                                                    page.clearLearnedHardwarePttKeyCodeRequested()
+                                            }
                                         }
                                     }
 
@@ -1545,7 +1540,9 @@ Page {
                                         Layout.fillWidth: true
                                         text: {
                                             if (page.reflectorClient.hardwarePttLearningActive)
-                                                return qsTr("Press a hardware button now...")
+                                                return qsTr("Press a hardware button or activate a Bluetooth SPP PTT device now...")
+                                            if (SppPttController.learnedSppDeviceAddress !== "")
+                                                return qsTr("SPP device: %1").arg(SppPttController.learnedSppDeviceName)
                                             if (page.reflectorClient.learnedHardwarePttKeyCode > 0)
                                                 return qsTr("Learned key code: %1").arg(page.reflectorClient.learnedHardwarePttKeyCode)
                                             return qsTr("No learned key saved.")

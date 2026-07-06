@@ -42,7 +42,7 @@ jobs:
         host: 'linux'
         target: 'android'
         arch: 'android_arm64_v8a'
-        modules: 'qtmultimedia'
+        modules: 'qtmultimedia qtconnectivity'
         cache: true
         
     - name: Install Qt ARMv7
@@ -52,7 +52,7 @@ jobs:
         host: 'linux'
         target: 'android'
         arch: 'android_armv7'
-        modules: 'qtmultimedia'
+        modules: 'qtmultimedia qtconnectivity'
         cache: true
 
     - name: Install Android NDK
@@ -97,10 +97,8 @@ jobs:
         # Verify changes
         echo "=== AndroidManifest.xml ===" 
         grep "versionName" android/android/AndroidManifest.xml
-        echo "=== ReflectorClient.cpp ==="
-        grep "swVer" android/ReflectorClient.cpp
         echo "=== Main.qml ==="
-        grep "text: 'v" android/Main.qml
+        grep "text: 'v" android/Main.qml || true
 
     - name: Configure CMake for Android
       working-directory: android
@@ -124,7 +122,7 @@ jobs:
     - name: Find and rename APK files
       id: find_apk
       run: |
-        APK_PATH=$(find android/build -name "*.apk" -type f | head -1)
+        APK_PATH=$(find android/build -name "*.apk" -type f | grep -v latryservice | head -1)
         if [ -z "$APK_PATH" ]; then
           echo "No APK found!"
           exit 1

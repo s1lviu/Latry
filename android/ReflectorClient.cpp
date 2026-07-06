@@ -47,6 +47,7 @@ namespace {
 const QString kAudioRouteSpeaker = QStringLiteral("speaker");
 const QString kAudioRouteWiredHeadset = QStringLiteral("wired_headset");
 const QString kAudioRouteBluetooth = QStringLiteral("bluetooth");
+
 constexpr qreal kMinRxAudioLevelDb = 0.0;
 constexpr qreal kMaxRxAudioLevelDb = 9.0;
 constexpr qreal kMinTxAudioLevelDb = -12.0;
@@ -898,10 +899,16 @@ void ReflectorClient::startHardwarePttLearning()
     }
 
 #if defined(Q_OS_ANDROID)
+    QJniObject activity = androidQtContext();
+    if (!activity.isValid()) {
+        qWarning() << "ReflectorClient: failed to get Android context for PTT learning";
+        return;
+    }
     const jboolean started = QJniObject::callStaticMethod<jboolean>(
         "yo6say/latry/HardwarePttLearningCoordinator",
         "startLearning",
-        "()Z");
+        "(Landroid/content/Context;)Z",
+        activity.object<jobject>());
     if (!started) {
         qWarning() << "ReflectorClient: Failed to start hardware PTT learning";
         return;
